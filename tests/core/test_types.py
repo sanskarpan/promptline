@@ -1,0 +1,85 @@
+from promptline.core.types import (
+    Candidate,
+    Demo,
+    Field,
+    ModuleState,
+    Signature,
+)
+
+
+def test_render_system_includes_instruction():
+    sig = Signature(
+        instruction="Classify sentiment",
+        inputs=[Field("text", "input text")],
+        outputs=[Field("label", "sentiment label")],
+    )
+    rendered = sig.render_system()
+    assert "Classify sentiment" in rendered
+    assert "text" in rendered
+    assert "input text" in rendered
+    assert "label" in rendered
+    assert "sentiment label" in rendered
+
+
+def test_render_system_format():
+    sig = Signature(
+        instruction="Do something",
+        inputs=[Field("a", "field a")],
+        outputs=[Field("b", "field b")],
+    )
+    rendered = sig.render_system()
+    assert "Inputs:" in rendered
+    assert "Outputs:" in rendered
+    assert "[[b]]" in rendered
+
+
+def test_parse_output_two_fields():
+    sig = Signature(
+        instruction="X",
+        inputs=[Field("q", "question")],
+        outputs=[Field("answer", "the answer"), Field("confidence", "confidence score")],
+    )
+    text = "[[answer]]: Paris\n[[confidence]]: high"
+    result = sig.parse_output(text)
+    assert result == {"answer": "Paris", "confidence": "high"}
+
+
+def test_parse_output_single_fallback():
+    sig = Signature(
+        instruction="X",
+        inputs=[Field("q", "question")],
+        outputs=[Field("answer", "the answer")],
+    )
+    # No [[field]]: markers → falls back to {field: text}
+    result = sig.parse_output("Paris is the capital of France")
+    assert result == {"answer": "Paris is the capital of France"}
+
+
+def test_parse_output_multi_failure_returns_none():
+    sig = Signature(
+        instruction="X",
+        inputs=[Field("q", "question")],
+        outputs=[Field("answer", "the answer"), Field("confidence", "confidence score")],
+    )
+    result = sig.parse_output("no markers here")
+    assert result is None
+
+
+def test_child_has_new_id():
+    parent = Candidate.seed({"mod": ModuleState(instruction="hello")})
+    child = parent.child({"mod": ModuleState(instruction="world")}, optimizer="test")
+    assert child.id != parent.id
+
+
+def test_child_lineage():
+    parent = Candidate.seed({"mod": ModuleState(instruction="hello")})
+    child = parent.child({"mod": ModuleState(instruction="world")}, optimizer="test")
+    assert child.parent_ids == [parent.id]
+
+
+def test_seed_creates_valid_candidate():
+    demo = Demo(inputs={"q": "hi"}, outputs={"a": "hello"})
+    c = Candidate.seed({"mod": ModuleState(instruction="hello", demos=[demo])})
+    assert c.id
+    assert c.modules["mod"].instruction == "hello"
+    assert len(c.modules["mod"].demos) == 1
