@@ -33,7 +33,11 @@ class Signature:
     def parse_output(self, text: str) -> dict[str, str] | None:
         matches = re.findall(r"\[\[(\w+)\]\]:\s*(.*?)(?=\[\[|\Z)", text, re.DOTALL)
         if matches:
-            return {k: v.strip() for k, v in matches}
+            declared = {f.name for f in self.outputs}
+            parsed = {k: v.strip() for k, v in matches if k in declared}
+            if parsed.keys() != declared:
+                return None
+            return parsed
         if len(self.outputs) == 1:
             return {self.outputs[0].name: text.strip()}
         return None
@@ -70,7 +74,7 @@ class Candidate(BaseModel):
         self,
         modules: dict[str, ModuleState],
         optimizer: str,
-        extra_parents: list[str] = [],
+        extra_parents: tuple[str, ...] = (),
     ) -> Candidate:
         return Candidate(
             id=uuid.uuid4().hex,

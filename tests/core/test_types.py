@@ -83,3 +83,37 @@ def test_seed_creates_valid_candidate():
     assert c.id
     assert c.modules["mod"].instruction == "hello"
     assert len(c.modules["mod"].demos) == 1
+
+
+# Fix 2: parse_output key validation tests
+def test_parse_output_unknown_key_multi_returns_none():
+    """Unknown [[key]] section with multi-output sig → no declared fields found → None."""
+    sig = Signature(
+        instruction="X",
+        inputs=[Field("q", "question")],
+        outputs=[Field("answer", "the answer"), Field("confidence", "confidence score")],
+    )
+    result = sig.parse_output("[[bogus]]: something")
+    assert result is None
+
+
+def test_parse_output_partial_outputs_returns_none():
+    """Only one of two declared output fields present → None."""
+    sig = Signature(
+        instruction="X",
+        inputs=[Field("q", "question")],
+        outputs=[Field("answer", "the answer"), Field("confidence", "confidence score")],
+    )
+    result = sig.parse_output("[[answer]]: Paris")
+    assert result is None
+
+
+def test_parse_output_unknown_extra_section_dropped():
+    """Unknown extra [[section]] alongside all declared fields → only declared fields returned."""
+    sig = Signature(
+        instruction="X",
+        inputs=[Field("q", "question")],
+        outputs=[Field("answer", "the answer"), Field("confidence", "confidence score")],
+    )
+    result = sig.parse_output("[[answer]]: Paris\n[[confidence]]: high\n[[bogus]]: extra")
+    assert result == {"answer": "Paris", "confidence": "high"}

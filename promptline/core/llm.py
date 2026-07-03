@@ -5,7 +5,7 @@ import json
 from collections.abc import Callable
 from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict
 
 
 class Message(BaseModel):
@@ -22,20 +22,9 @@ class LLMCall(BaseModel):
     max_tokens: int = 1024
     seed: int | None = None
 
-    @field_validator("messages", mode="before")
-    @classmethod
-    def _normalize_messages(cls, v: object) -> tuple[Message, ...]:
-        result = []
-        for m in v:  # type: ignore[union-attr]
-            if isinstance(m, dict):
-                result.append(Message(**m))
-            else:
-                result.append(m)
-        return tuple(result)
-
     def key(self) -> str:
         data = self.model_dump()
-        return hashlib.sha256(json.dumps(data, sort_keys=True, default=list).encode()).hexdigest()
+        return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
 
 class LLMResponse(BaseModel):
@@ -59,7 +48,7 @@ class FakeLLMClient:
         self,
         script: list[str] | Callable[[LLMCall], str] | None = None,
     ):
-        self.script = script
+        self.script = list(script) if isinstance(script, list) else script
         self.calls: list[LLMCall] = []
 
     async def complete(self, call: LLMCall) -> LLMResponse:

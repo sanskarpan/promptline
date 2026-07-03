@@ -52,3 +52,14 @@ async def test_fake_script_exhausted_raises():
     client = FakeLLMClient(script=[])
     with pytest.raises(LLMError):
         await client.complete(make_call())
+
+
+# Fix 4: FakeLLMClient must not mutate the caller's list
+@pytest.mark.asyncio
+async def test_fake_does_not_mutate_caller_script():
+    """Caller's original list must be unchanged after FakeLLMClient pops responses."""
+    original = ["first", "second"]
+    client = FakeLLMClient(script=original)
+    await client.complete(make_call())
+    await client.complete(make_call())
+    assert original == ["first", "second"]
