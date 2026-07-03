@@ -38,6 +38,7 @@ BITEXT_ROW = {
     "response": "To reset your password, click 'Forgot password' on the login page.",
     "category": "ACCOUNT",
     "intent": "reset_password",
+    "flags": "BQZ",
 }
 
 MTBENCH_ROW = {
@@ -46,6 +47,7 @@ MTBENCH_ROW = {
     "model_b": "claude-2",
     "winner": "model_a",
     "judge": "gpt-4",
+    "turn": 2,
     "conversation_a": [
         {"role": "user", "content": "Write a short poem about the sea."},
         {"role": "assistant", "content": "The waves crash and roar,\nUpon the sunlit shore."},
@@ -134,6 +136,7 @@ def test_bitext_meta() -> None:
     record = _map_bitext_row(BITEXT_ROW)
     assert record.meta["category"] == BITEXT_ROW["category"]
     assert record.meta["intent"] == BITEXT_ROW["intent"]
+    assert record.meta["flags"] == BITEXT_ROW["flags"]
 
 
 def test_bitext_no_human_label() -> None:
@@ -181,6 +184,11 @@ def test_mtbench_question_id_and_judge() -> None:
     record = _map_mtbench_row(MTBENCH_ROW)
     assert record.meta["question_id"] == 101
     assert record.meta["judge"] == "gpt-4"
+
+
+def test_mtbench_turn_in_meta() -> None:
+    record = _map_mtbench_row(MTBENCH_ROW)
+    assert record.meta["turn"] == 2
 
 
 def test_mtbench_no_reference_output() -> None:

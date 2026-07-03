@@ -52,12 +52,17 @@ def _map_bitext_row(row: dict[str, Any]) -> Record:
             "response": str,
             "category": str,
             "intent": str,
+            "flags": str,
         }
     """
     return Record(
         conversation=[Turn(role="user", content=row["instruction"])],
         reference_output=row["response"],
-        meta={"category": row["category"], "intent": row["intent"]},
+        meta={
+            "category": row["category"],
+            "intent": row["intent"],
+            "flags": row.get("flags", ""),
+        },
     )
 
 
@@ -104,6 +109,7 @@ def _map_mtbench_row(row: dict[str, Any]) -> Record:
             "winner": row["winner"],
             "question_id": row["question_id"],
             "judge": row["judge"],
+            "turn": row.get("turn"),
         },
     )
 
@@ -116,6 +122,13 @@ _DATA_EXTRA_MSG = (
     "The 'datasets' package is required to use this loader.  "
     "Install it with:  pip install 'promptline[data]'"
 )
+
+
+def _apply_limit(ds: Any, limit: int | None) -> Any:
+    """Slice a HuggingFace dataset to *limit* rows BEFORE row-mapping."""
+    if limit is not None:
+        return ds.select(range(min(limit, len(ds))))
+    return ds
 
 
 def load_helpsteer2(
@@ -132,10 +145,8 @@ def load_helpsteer2(
     except ImportError as exc:
         raise ImportError(_DATA_EXTRA_MSG) from exc
 
-    ds = hf_datasets.load_dataset("nvidia/HelpSteer2", split=split)
+    ds = _apply_limit(hf_datasets.load_dataset("nvidia/HelpSteer2", split=split), limit)
     records = [_map_helpsteer_row(dict(row), attribute=attribute) for row in ds]
-    if limit is not None:
-        records = records[:limit]
     return Dataset(records)
 
 
@@ -149,13 +160,14 @@ def load_bitext(limit: int | None = None) -> Dataset:
     except ImportError as exc:
         raise ImportError(_DATA_EXTRA_MSG) from exc
 
-    ds = hf_datasets.load_dataset(
-        "bitext/Bitext-customer-support-llm-chatbot-training-dataset",
-        split="train",
+    ds = _apply_limit(
+        hf_datasets.load_dataset(
+            "bitext/Bitext-customer-support-llm-chatbot-training-dataset",
+            split="train",
+        ),
+        limit,
     )
     records = [_map_bitext_row(dict(row)) for row in ds]
-    if limit is not None:
-        records = records[:limit]
     return Dataset(records)
 
 
@@ -169,8 +181,9 @@ def load_mtbench_human(limit: int | None = None) -> Dataset:
     except ImportError as exc:
         raise ImportError(_DATA_EXTRA_MSG) from exc
 
-    ds = hf_datasets.load_dataset("lmsys/mt_bench_human_judgments", split="human")
+    ds = _apply_limit(
+        hf_datasets.load_dataset("lmsys/mt_bench_human_judgments", split="human"),
+        limit,
+    )
     records = [_map_mtbench_row(dict(row)) for row in ds]
-    if limit is not None:
-        records = records[:limit]
     return Dataset(records)
