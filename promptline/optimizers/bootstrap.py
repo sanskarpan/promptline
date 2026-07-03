@@ -17,6 +17,90 @@ from promptline.core.types import Candidate, Demo, Example, ModuleState
 from promptline.eval.harness import Budget, EvalHarness, Metric
 from promptline.optimizers.base import Optimizer, OptimizeResult, RunEvent
 
+# ---------------------------------------------------------------------------
+# Shared demo collection
+# ---------------------------------------------------------------------------
+
+
+async def collect_demo_pool(
+    program: PromptProgram,
+    candidate: Candidate,
+    examples: list[Example],
+    metric: Metric,
+    budget: Budget,
+    harness: EvalHarness,
+    threshold: float,
+    max_per_module: int,
+) -> tuple[dict[str, list[Demo]], int, int]:
+    """Rejection-sample passing examples into per-module demo pools.
+
+    Runs *candidate* over *examples* (budget-charged, one rollout each) and,
+    for every example whose metric score reaches *threshold*, records a
+    :class:`Demo` per module from the prediction traces.  Stops when every
+    module has *max_per_module* demos, when the budget is exhausted, or when
+    the examples run out.
+
+    Returns ``(module_demos, passed, total)`` where *passed* / *total* count
+    examples that reached the threshold vs. examples attempted.
+
+    .. note::
+        Multi-module caveat: only the first module's inputs are reliably
+        known (they are ``example.inputs``); later modules' inputs come from
+        prior-module outputs which are not tracked separately here — we fall
+        back to ``example.inputs`` for all modules, which may be incomplete.
+    """
+    module_demos: dict[str, list[Demo]] = {m.name: [] for m in program.modules}
+    passed = 0
+    total = 0
+
+    for example in examples:
+        # Stop if budget is already exhausted.
+        if budget.exhausted:
+            break
+
+        # Stop once every module has enough demos.
+        all_full = all(
+            len(module_demos[m.name]) >= max_per_module for m in program.modules
+        )
+        if all_full:
+            break
+
+        # Atomically reserve a rollout slot.
+        reserved = await budget.try_reserve(rollouts=1)
+        if not reserved:
+            break
+
+        total += 1
+
+        try:
+            prediction = await program.run(example, candidate, harness.client, harness.cfg)
+            budget.add_cost(prediction.cost_usd)
+        except Exception:
+            continue
+
+        if prediction.failed:
+            continue
+
+        raw = metric(example, prediction)
+        if inspect.isawaitable(raw):
+            raw = await raw
+
+        if raw.score >= threshold:
+            passed += 1
+            for trace in prediction.traces:
+                mod_name = trace.module
+                if mod_name not in module_demos:
+                    continue
+                if len(module_demos[mod_name]) >= max_per_module:
+                    continue
+                if trace.parsed is None:
+                    continue
+                module_demos[mod_name].append(
+                    Demo(inputs=dict(example.inputs), outputs=trace.parsed)
+                )
+
+    return module_demos, passed, total
+
 
 class BootstrapFewShot(Optimizer):
     """Collect passing training examples as few-shot demonstrations.
@@ -65,64 +149,17 @@ class BootstrapFewShot(Optimizer):
         shuffled = list(trainset)
         rng.shuffle(shuffled)
 
-        # Per-module demo accumulator.
-        module_demos: dict[str, list[Demo]] = {m.name: [] for m in program.modules}
-        passed = 0
-        total = 0
-
-        for example in shuffled:
-            # Stop if budget is already exhausted.
-            if budget.exhausted:
-                break
-
-            # Stop once every module has enough demos.
-            all_full = all(
-                len(module_demos[m.name]) >= self.max_demos for m in program.modules
-            )
-            if all_full:
-                break
-
-            # Atomically reserve a rollout slot.
-            reserved = await budget.try_reserve(rollouts=1)
-            if not reserved:
-                break
-
-            total += 1
-
-            try:
-                prediction = await program.run(example, seed, harness.client, harness.cfg)
-                budget.add_cost(prediction.cost_usd)
-            except Exception:
-                continue
-
-            if prediction.failed:
-                continue
-
-            raw = metric(example, prediction)
-            if inspect.isawaitable(raw):
-                raw = await raw
-
-            if raw.score >= self.threshold:
-                passed += 1
-                # Extract demos from prediction traces.
-                # Primary case: single-module programs.
-                # Multi-module: only the first module's inputs are reliably
-                # known (they are example.inputs); later modules' inputs come
-                # from prior-module outputs which are not tracked separately
-                # here — we fall back to example.inputs for all modules, which
-                # may be incomplete. A full multi-module implementation would
-                # need to record the rendered user-prompt inputs per module.
-                for trace in prediction.traces:
-                    mod_name = trace.module
-                    if mod_name not in module_demos:
-                        continue
-                    if len(module_demos[mod_name]) >= self.max_demos:
-                        continue
-                    if trace.parsed is None:
-                        continue
-                    module_demos[mod_name].append(
-                        Demo(inputs=dict(example.inputs), outputs=trace.parsed)
-                    )
+        # Collect per-module demos via shared rejection sampling.
+        module_demos, passed, total = await collect_demo_pool(
+            program,
+            seed,
+            shuffled,
+            metric,
+            budget,
+            harness,
+            threshold=self.threshold,
+            max_per_module=self.max_demos,
+        )
 
         # Build the best candidate with collected demos.
         new_modules: dict[str, ModuleState] = {
