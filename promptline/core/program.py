@@ -8,6 +8,12 @@ from pydantic import BaseModel
 from promptline.core.llm import LLMCall, LLMClient, LLMResponse, Message
 from promptline.core.types import Candidate, Example, Field, Signature
 
+# Shared repair prompt used in the repair attempt after parse failure.
+REPAIR_PROMPT = (
+    "Your output was not in the required format. "
+    "Respond again using exactly the required [[field]]: sections."
+)
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -200,13 +206,7 @@ class PromptProgram:
             if parsed is None:
                 repair_messages = messages + [
                     Message(role="assistant", content=resp.text),
-                    Message(
-                        role="user",
-                        content=(
-                            "Your output was not in the required format. "
-                            "Respond again using exactly the required [[field]]: sections."
-                        ),
-                    ),
+                    Message(role="user", content=REPAIR_PROMPT),
                 ]
                 repair_call = LLMCall(
                     model=cfg.task_model,
@@ -222,10 +222,7 @@ class PromptProgram:
                     Trace(
                         module=module.name,
                         system_prompt=system_prompt,
-                        user_prompt=(
-                            "Your output was not in the required format. "
-                            "Respond again using exactly the required [[field]]: sections."
-                        ),
+                        user_prompt=REPAIR_PROMPT,
                         raw_output=repair_resp.text,
                         parsed=parsed,
                     )

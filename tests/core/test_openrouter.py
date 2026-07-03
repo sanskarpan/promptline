@@ -169,3 +169,96 @@ def test_env_api_key_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
     client = OpenRouterClient()
     assert client._api_key == "env-key"
+
+
+# ---------------------------------------------------------------------------
+# Connection pooling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pooled_client_lazily_created() -> None:
+    with respx.mock:
+        respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+            return_value=_ok_response()
+        )
+        client = OpenRouterClient(api_key="test-key")
+        assert client._http is None
+        await client.complete(_make_call())
+        assert client._http is not None
+
+
+@pytest.mark.asyncio
+async def test_pooled_client_reused_across_calls() -> None:
+    with respx.mock:
+        respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+            return_value=_ok_response()
+        )
+        client = OpenRouterClient(api_key="test-key")
+        await client.complete(_make_call())
+        first_http = client._http
+        await client.complete(_make_call())
+        assert client._http is first_http
+
+
+@pytest.mark.asyncio
+async def test_aclose_resets_pooled_client() -> None:
+    with respx.mock:
+        respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+            return_value=_ok_response()
+        )
+        client = OpenRouterClient(api_key="test-key")
+        await client.complete(_make_call())
+        assert client._http is not None
+        await client.aclose()
+        assert client._http is None
+
+
+@pytest.mark.asyncio
+async def test_context_manager_closes_on_exit() -> None:
+    with respx.mock:
+        respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+            return_value=_ok_response("context-result")
+        )
+        async with OpenRouterClient(api_key="test-key") as client:
+            resp = await client.complete(_make_call())
+            assert resp.text == "context-result"
+        assert client._http is None
+
+
+# ---------------------------------------------------------------------------
+# Malformed 200 responses → LLMError
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_malformed_json_body_raises_llm_error() -> None:
+    with respx.mock:
+        respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+            return_value=httpx.Response(200, text="not json at all", headers={"content-type": "application/json"})
+        )
+        client = OpenRouterClient(api_key="test-key")
+        with pytest.raises(LLMError, match="[Mm]alformed"):
+            await client.complete(_make_call())
+
+
+@pytest.mark.asyncio
+async def test_missing_choices_key_raises_llm_error() -> None:
+    with respx.mock:
+        respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json={"usage": {"prompt_tokens": 5}})
+        )
+        client = OpenRouterClient(api_key="test-key")
+        with pytest.raises(LLMError, match="[Mm]alformed"):
+            await client.complete(_make_call())
+
+
+@pytest.mark.asyncio
+async def test_empty_choices_list_raises_llm_error() -> None:
+    with respx.mock:
+        respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json={"choices": [], "usage": {}})
+        )
+        client = OpenRouterClient(api_key="test-key")
+        with pytest.raises(LLMError, match="[Mm]alformed"):
+            await client.complete(_make_call())
