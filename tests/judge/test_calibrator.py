@@ -13,6 +13,7 @@ from promptline.judge.calibrator import (
     CalibrationCertificate,
     Calibrator,
     UncalibratedJudgeError,
+    _usable,
     require_certificate,
 )
 from promptline.judge.judge import PointwiseJudge, RubricCriterion, render_transcript
@@ -222,6 +223,99 @@ async def test_meta_optimize_trainset_from_dev_only() -> None:
     for example in optimizer.trainset_seen:
         assert example.inputs["conversation"] in dev_transcripts
         assert "human_score" in example.labels
+
+
+# ---------------------------------------------------------------------------
+# Degenerate certificate guard (Finding 3)
+# ---------------------------------------------------------------------------
+
+
+async def test_degenerate_all_identical_human_labels() -> None:
+    """All-identical human labels → passed=False, degenerate=True, kappa=0.0."""
+    # Build a gold dataset where every human_label is 2.0 (scale 1–3).
+    records = [
+        Record(
+            conversation=[Turn(role="user", content=f"q{i}")],
+            reference_output=f"ans {i}",
+            human_label=2.0,
+        )
+        for i in range(10)
+    ]
+    gold = Dataset(records)
+    # Judge can return anything; degenerate detection is on human labels.
+    client = FakeLLMClient(script=lambda call: "[[reasoning]]: r\n[[score]]: 2")
+    calibrator = Calibrator(_judge(), gold, client)
+    cert = await calibrator.calibrate()
+
+    assert cert.degenerate is True
+    assert cert.passed is False
+    assert cert.kappa == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Label range recording (Finding 4)
+# ---------------------------------------------------------------------------
+
+
+async def test_certificate_records_observed_label_range() -> None:
+    """Certificate label_min/label_max reflect observed human-label range."""
+    client = FakeLLMClient(script=_echo_script)
+    calibrator = Calibrator(_judge(), _gold(), client)
+    cert = await calibrator.calibrate()
+
+    holdout_labels = [float(r.human_label) for r in calibrator.holdout if _usable(r)]
+    assert cert.label_min == min(holdout_labels)
+    assert cert.label_max == max(holdout_labels)
+
+
+async def test_declared_label_range_used_for_binning() -> None:
+    """When label_range is provided, it overrides the observed min/max for binning."""
+    # Gold labels are 0–2 but we declare a wider range (0, 4).
+    records = []
+    for i in range(12):
+        label = float(i % 3)  # 0.0, 1.0, 2.0
+        records.append(
+            Record(
+                conversation=[Turn(role="user", content=f"q{i} label={int(label)}")],
+                reference_output=f"ans {i}",
+                human_label=label,
+            )
+        )
+    gold = Dataset(records)
+    client = FakeLLMClient(script=lambda call: "[[reasoning]]: r\n[[score]]: 1")
+    calibrator = Calibrator(_judge(), gold, client, label_range=(0.0, 4.0))
+    cert = await calibrator.calibrate()
+
+    # The declared range (0, 4) must appear in the certificate.
+    assert cert.label_min == 0.0
+    assert cert.label_max == 4.0
+
+
+async def test_declared_label_range_differs_from_observed() -> None:
+    """Declared range changes binning vs. observed-only range."""
+    records = []
+    for i in range(10):
+        label = 1.0  # all same observed value; declared range (0, 2) differs
+        records.append(
+            Record(
+                conversation=[Turn(role="user", content=f"q{i}")],
+                reference_output=f"ans {i}",
+                human_label=label,
+            )
+        )
+    gold = Dataset(records)
+    client = FakeLLMClient(script=lambda call: "[[reasoning]]: r\n[[score]]: 2")
+    # Without declared range: vmin==vmax → degenerate.
+    calibrator_no_range = Calibrator(_judge(), gold, client)
+    cert_no_range = await calibrator_no_range.calibrate()
+    assert cert_no_range.degenerate is True
+
+    # With declared range (0, 2): vmin != vmax → no degenerate label collapse.
+    client2 = FakeLLMClient(script=lambda call: "[[reasoning]]: r\n[[score]]: 2")
+    calibrator_with_range = Calibrator(_judge(), gold, client2, label_range=(0.0, 2.0))
+    cert_with_range = await calibrator_with_range.calibrate()
+    assert cert_with_range.label_min == 0.0
+    assert cert_with_range.label_max == 2.0
 
 
 async def test_meta_optimize_metric_rewards_agreement() -> None:

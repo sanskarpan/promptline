@@ -240,11 +240,18 @@ class PointwiseJudge:
         self,
         client: LLMClient,
         reference_from_labels: bool = True,
+        candidate: Candidate | None = None,
     ) -> Metric:
         """Adapt this judge into a harness :data:`Metric`.
 
         Scores the program's ``answer``/``response`` (or last) output field and
         normalizes the judge value onto [0, 1] via ``(v - lo) / (hi - lo)``.
+
+        *candidate* is forwarded to :meth:`_score_inputs`; pass an optimized
+        candidate to use its instruction instead of the seed.
+
+        The metric **never raises**: any :class:`JudgeError` or unexpected
+        exception is caught and returned as ``MetricResult(score=0.0)``.
         """
         lo, hi = self.criterion.scale
 
@@ -261,11 +268,14 @@ class PointwiseJudge:
                 reference = example.labels.get("reference")
                 if reference is not None:
                     inputs["reference"] = reference
-            judged = await self._score_inputs(inputs, client, None)
-            return MetricResult(
-                score=(judged.value - lo) / (hi - lo),
-                feedback=judged.reasoning,
-            )
+            try:
+                judged = await self._score_inputs(inputs, client, candidate)
+                return MetricResult(
+                    score=(judged.value - lo) / (hi - lo),
+                    feedback=judged.reasoning,
+                )
+            except (JudgeError, Exception) as exc:
+                return MetricResult(score=0.0, feedback=f"judge error: {exc}")
 
         return metric
 
@@ -337,10 +347,10 @@ class PairwiseJudge:
         cand = candidate or self.seed_candidate
         transcript = render_transcript(record)
 
-        verdict_1, reasoning = await self._one_ordering(
+        verdict_1, reasoning_1 = await self._one_ordering(
             transcript, response_a, response_b, client, cand
         )
-        verdict_2_swapped, _ = await self._one_ordering(
+        verdict_2_swapped, reasoning_2 = await self._one_ordering(
             transcript, response_b, response_a, client, cand
         )
         if verdict_1 is None or verdict_2_swapped is None:
@@ -349,5 +359,13 @@ class PairwiseJudge:
                 f"'{self.criterion.name}'"
             )
         verdict_2 = _UNSWAP[verdict_2_swapped]
-        winner = verdict_1 if verdict_1 == verdict_2 else "TIE"
+        if verdict_1 == verdict_2:
+            winner = verdict_1
+            reasoning = reasoning_1
+        else:
+            winner = "TIE"
+            reasoning = (
+                f"Position-swap disagreement: [A-order] {reasoning_1} | "
+                f"[B-order] {reasoning_2}"
+            )
         return PairwiseVerdict(winner=winner, reasoning=reasoning)

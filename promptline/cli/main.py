@@ -34,6 +34,26 @@ app = typer.Typer(
 )
 
 # ---------------------------------------------------------------------------
+# data sub-app
+# ---------------------------------------------------------------------------
+
+data_app = typer.Typer(name="data", help="Data preparation utilities.")
+app.add_typer(data_app, name="data")
+
+
+@data_app.command("prepare")
+def data_prepare(
+    demo: bool = typer.Option(False, "--demo", help="Prepare demo data."),
+) -> None:
+    """Prepare data for a Promptline pipeline."""
+    if demo:
+        typer.echo(
+            "Demo data preparation arrives with the demo pipeline "
+            "(see examples/support-assistant)"
+        )
+    raise typer.Exit(0)
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -363,6 +383,16 @@ def calibrate(
         "--config",
         help="Path to promptline.yaml.",
     ),
+    label_min: float | None = typer.Option(
+        None,
+        "--label-min",
+        help="Declared minimum human-label value for binning (overrides observed min).",
+    ),
+    label_max: float | None = typer.Option(
+        None,
+        "--label-max",
+        help="Declared maximum human-label value for binning (overrides observed max).",
+    ),
 ) -> None:
     """Calibrate the LLM judge against gold human labels and save a certificate."""
 
@@ -388,7 +418,12 @@ def calibrate(
 
     # ---- Calibrate -------------------------------------------------------------
     client = _build_client(cfg)
-    calibrator = Calibrator(judge, dataset, client, threshold_kappa=threshold)
+    declared_range: tuple[float, float] | None = None
+    if label_min is not None and label_max is not None:
+        declared_range = (label_min, label_max)
+    calibrator = Calibrator(
+        judge, dataset, client, threshold_kappa=threshold, label_range=declared_range
+    )
 
     console.print(
         f"\nCalibrating judge [bold]{judge_model}[/bold] on criterion "

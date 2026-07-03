@@ -54,6 +54,9 @@ class CalibrationCertificate(BaseModel):
     created_at: str
     confusion: list[list[int]]
     binning: str
+    degenerate: bool = False
+    label_min: float = 0.0
+    label_max: float = 0.0
 
     def save(self, path: str | Path) -> None:
         path = Path(path)
@@ -110,10 +113,12 @@ class Calibrator:
         client: LLMClient,
         threshold_kappa: float = 0.6,
         split_seed: int = 0,
+        label_range: tuple[float, float] | None = None,
     ) -> None:
         self.judge = judge
         self.client = client
         self.threshold_kappa = threshold_kappa
+        self._label_range = label_range
         splits = gold.split({"dev": 0.5, "holdout": 0.5}, seed=split_seed)
         self.dev = splits["dev"]
         self.holdout = splits["holdout"]
@@ -122,19 +127,28 @@ class Calibrator:
     # Binning
     # ------------------------------------------------------------------
 
-    def _bin_human_labels(self, values: list[float]) -> tuple[list[int], str]:
-        """Map human scalar labels onto the judge's integer scale."""
+    def _bin_human_labels(
+        self, values: list[float]
+    ) -> tuple[list[int], str, float, float]:
+        """Map human scalar labels onto the judge's integer scale.
+
+        Returns ``(binned, binning_name, vmin, vmax)`` where *vmin*/*vmax* are
+        the range actually used for binning (declared or observed).
+        """
         lo, hi = self.judge.criterion.scale
-        vmin, vmax = min(values), max(values)
+        if self._label_range is not None:
+            vmin, vmax = self._label_range
+        else:
+            vmin, vmax = min(values), max(values)
         if vmin == lo and vmax == hi:
-            return [round(v) for v in values], "identity"
+            return [round(v) for v in values], "identity", vmin, vmax
         if vmax == vmin:
             mid = round((lo + hi) / 2)
-            return [mid] * len(values), "linear-minmax"
+            return [mid] * len(values), "linear-minmax", vmin, vmax
         binned = [
             round(lo + (v - vmin) / (vmax - vmin) * (hi - lo)) for v in values
         ]
-        return binned, "linear-minmax"
+        return binned, "linear-minmax", vmin, vmax
 
     # ------------------------------------------------------------------
     # Certification
@@ -164,13 +178,22 @@ class Calibrator:
             judge_raw.append(judged.value)
 
         lo, hi = self.judge.criterion.scale
-        human_binned, binning = self._bin_human_labels(human_raw)
+        human_binned, binning, label_min, label_max = self._bin_human_labels(human_raw)
         judge_binned = [max(lo, min(hi, round(v))) for v in judge_raw]
 
-        kappa = cohens_kappa(human_binned, judge_binned, weights="quadratic")
         rho = spearman(human_raw, judge_raw)
         if math.isnan(rho):
             rho = 0.0
+
+        # Degenerate check: kappa is not meaningful when all binned human
+        # labels are identical (< 2 distinct values).
+        degenerate = len(set(human_binned)) < 2
+        if degenerate:
+            kappa = 0.0
+            passed = False
+        else:
+            kappa = cohens_kappa(human_binned, judge_binned, weights="quadratic")
+            passed = kappa >= self.threshold_kappa
 
         size = hi - lo + 1
         confusion = [[0] * size for _ in range(size)]
@@ -185,11 +208,14 @@ class Calibrator:
             spearman=rho,
             n_holdout=len(records),
             threshold=self.threshold_kappa,
-            passed=kappa >= self.threshold_kappa,
+            passed=passed,
             judge_candidate_id=used.id,
             created_at=datetime.now(UTC).isoformat(),
             confusion=confusion,
             binning=binning,
+            degenerate=degenerate,
+            label_min=label_min,
+            label_max=label_max,
         )
 
     # ------------------------------------------------------------------

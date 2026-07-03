@@ -158,6 +158,39 @@ async def test_as_metric_falls_back_to_last_output_field() -> None:
     assert "LAST-FIELD" in client.calls[0].messages[-1].content
 
 
+async def test_as_metric_never_crashes_on_unparseable_judge() -> None:
+    """Metric must return score=0.0 instead of raising when judge fails."""
+    judge = PointwiseJudge(criterion=CRITERION, judge_model="fake/judge", samples=2)
+    # All responses are unparseable → _score_inputs raises JudgeError.
+    client = FakeLLMClient(script=[_resp("N/A"), _resp("nope")])
+    metric = judge.as_metric(client)
+    example = Example(inputs={"conversation": "user: hi"})
+    result = await metric(example, _prediction({"answer": "hello"}))
+    assert result.score == 0.0
+    assert "judge error" in result.feedback
+
+
+async def test_as_metric_accepts_candidate_and_uses_its_instruction() -> None:
+    """Optimized candidate's instruction must appear in the judge's system prompt."""
+    from promptline.core.types import ModuleState
+    from promptline.judge.judge import JUDGE_MODULE
+
+    judge = PointwiseJudge(criterion=CRITERION, judge_model="fake/judge")
+    client = FakeLLMClient(script=[_resp("4")])
+
+    optimized_instruction = "CUSTOM-OPTIMIZED-INSTRUCTION-XYZ"
+    from promptline.core.types import Candidate
+    candidate = Candidate.seed({JUDGE_MODULE: ModuleState(instruction=optimized_instruction)})
+
+    metric = judge.as_metric(client, candidate=candidate)
+    example = Example(inputs={"conversation": "user: hi"})
+    await metric(example, _prediction({"answer": "hello"}))
+
+    # The instruction lands in the system prompt of the LLM call.
+    system_msg = client.calls[0].messages[0].content
+    assert optimized_instruction in system_msg
+
+
 # ---------------------------------------------------------------------------
 # PairwiseJudge
 # ---------------------------------------------------------------------------
@@ -194,6 +227,24 @@ async def test_pairwise_disagreement_yields_tie() -> None:
     client = FakeLLMClient(script=[_verdict("A"), _verdict("A")])
     verdict = await judge.compare(RECORD, "resp-a", "resp-b", client)
     assert verdict.winner == "TIE"
+
+
+async def test_pairwise_tie_reasoning_contains_both_orderings() -> None:
+    """On position-swap disagreement, reasoning embeds both orderings' text."""
+    judge = PairwiseJudge(criterion=PAIR_CRITERION, judge_model="fake/judge")
+    client = FakeLLMClient(
+        script=[
+            _verdict("A", reasoning="first reasoning"),
+            _verdict("A", reasoning="second reasoning"),
+        ]
+    )
+    verdict = await judge.compare(RECORD, "resp-a", "resp-b", client)
+    assert verdict.winner == "TIE"
+    assert "Position-swap disagreement" in verdict.reasoning
+    assert "[A-order]" in verdict.reasoning
+    assert "[B-order]" in verdict.reasoning
+    assert "first reasoning" in verdict.reasoning
+    assert "second reasoning" in verdict.reasoning
 
 
 async def test_pairwise_tie_agreement() -> None:

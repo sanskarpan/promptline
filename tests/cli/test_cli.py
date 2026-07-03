@@ -432,3 +432,21 @@ def test_calibrate_missing_gold_exits_nonzero(tmp_path: Path) -> None:
         ],
     )
     assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# data sub-app (Finding 6)
+# ---------------------------------------------------------------------------
+
+
+def test_data_prepare_demo_exits_0() -> None:
+    """data prepare --demo must print the demo message and exit 0."""
+    result = runner.invoke(app, ["data", "prepare", "--demo"])
+    assert result.exit_code == 0, result.output
+    assert "Demo data preparation" in result.output
+
+
+def test_data_prepare_no_flags_exits_0() -> None:
+    """data prepare without flags must also exit 0."""
+    result = runner.invoke(app, ["data", "prepare"])
+    assert result.exit_code == 0, result.output
