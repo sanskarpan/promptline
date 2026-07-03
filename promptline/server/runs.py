@@ -2,9 +2,12 @@
 
 :class:`RunManager` starts optimizer runs as :mod:`asyncio` tasks.  Each run
 gets a :class:`~promptline.optimizers.base.RunRecorder` rooted at
-``base_dir/<run_id>``; the recorder's ``emit`` is handed to the coroutine
-factory so optimizer events land in ``events.jsonl`` where the SSE endpoint
-can replay/tail them.
+``base_dir/<run_id>``; the recorder's ``emit`` **and** its ``run_dir`` are
+handed to the coroutine factory so the factory can:
+
+* Persist events to ``events.jsonl`` (SSE replay / tail).
+* Pass ``run_dir`` to GEPA for checkpointing.
+* Derive the ``run_id`` from ``run_dir.name`` for registry bookkeeping.
 """
 from __future__ import annotations
 
@@ -16,8 +19,23 @@ from pathlib import Path
 
 from promptline.optimizers.base import RunEvent, RunRecorder
 
-#: A factory receiving the recorder's ``emit`` and returning the run coroutine.
-CoroFactory = Callable[[Callable[[RunEvent], None]], Coroutine]
+#: Factory: receives (emit, run_dir) and returns the run coroutine.
+#: ``run_dir.name`` equals the run_id assigned by RunManager.
+CoroFactory = Callable[[Callable[[RunEvent], None], Path], Coroutine]
+
+
+class RunStartError(Exception):
+    """Raised when the coro factory fails synchronously in :meth:`RunManager.start`.
+
+    The run is immediately registered with ``status='failed'`` so
+    ``GET /runs/{id}`` reflects the failure.  ``POST /runs`` catches this and
+    returns HTTP 400 (with ``run_id`` in the body) instead of 500.
+    """
+
+    def __init__(self, run_id: str, cause: Exception) -> None:
+        super().__init__(str(cause))
+        self.run_id = run_id
+        self.cause = cause
 
 
 @dataclass
@@ -61,12 +79,24 @@ class RunManager:
         return self.base_dir / run_id / "events.jsonl"
 
     def start(self, coro_factory: CoroFactory, run_id: str | None = None) -> str:
-        """Launch a run and return its id (uuid4 hex when not supplied)."""
+        """Launch a run and return its id (uuid4 hex when not supplied).
+
+        If *coro_factory* raises synchronously (e.g. file-not-found while
+        loading the dataset), the run is immediately marked ``failed`` and
+        :exc:`RunStartError` is raised so ``POST /runs`` can return HTTP 400
+        rather than leaving a zombie run stuck at ``status='running'``.
+        """
         run_id = run_id or uuid.uuid4().hex
         recorder = RunRecorder(self.base_dir / run_id)
         info = RunInfo(run_id=run_id)
         self._runs[run_id] = info
-        info.task = asyncio.create_task(self._run(info, coro_factory(recorder.emit)))
+        try:
+            coro = coro_factory(recorder.emit, recorder.run_dir)
+        except Exception as exc:  # noqa: BLE001 — surfaced via RunStartError
+            info.status = "failed"
+            info.error = f"{type(exc).__name__}: {exc}"
+            raise RunStartError(run_id, exc) from exc
+        info.task = asyncio.create_task(self._run(info, coro))
         return run_id
 
     async def _run(self, info: RunInfo, coro: Coroutine) -> None:

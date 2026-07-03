@@ -850,3 +850,109 @@ def test_build_app_from_config_smoke(tmp_path: Path) -> None:
         resp = client.get("/prompts/main/active")
         assert resp.status_code == 200
         assert resp.json()["prompt_id"] == "base-1"
+
+
+# ---------------------------------------------------------------------------
+# Finding 4: CLI error presentation — exit 2, no tracebacks
+# ---------------------------------------------------------------------------
+
+
+def test_optimize_missing_api_key_exits_2_clean(tmp_path: Path) -> None:
+    """optimize without OPENROUTER_API_KEY (and no fake script) → exit 2, no traceback."""
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
+    _write_jsonl(data_path, _make_examples(3))
+
+    # Strip both the real key and the fake-script override.
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("OPENROUTER_API_KEY", "PROMPTLINE_FAKE_SCRIPT")
+    }
+    result = runner.invoke(
+        app,
+        ["optimize", "--config", str(cfg_path), "--data", str(data_path)],
+        env=env,
+    )
+    assert result.exit_code == 2, result.output
+    assert "Traceback" not in (result.output or "")
+    # The output (or the exception message forwarded to output) mentions the issue.
+    output_lower = (result.output or "").lower()
+    assert any(kw in output_lower for kw in ("openrouter", "api key", "llm"))
+
+
+def test_optimize_malformed_jsonl_exits_2_clean(tmp_path: Path) -> None:
+    """optimize with a JSONL file that contains invalid JSON → exit 2, no traceback."""
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    fake_path = tmp_path / "fake.json"
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
+    # First line valid, second line broken.
+    data_path.write_text(
+        '{"inputs": {"question": "q0"}, "labels": {"answer": "a0"}}\n{bad json\n'
+    )
+    _write_fake_script(fake_path, ["[[answer]]: a0"])
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    result = runner.invoke(
+        app,
+        ["optimize", "--config", str(cfg_path), "--data", str(data_path)],
+        env=env,
+    )
+    assert result.exit_code == 2, result.output
+    assert "Traceback" not in (result.output or "")
+
+
+# ---------------------------------------------------------------------------
+# Finding 3: gate command passes Budget(max_rollouts=None, max_cost_usd=X)
+# ---------------------------------------------------------------------------
+
+
+def test_gate_budget_max_cost_wired_through(tmp_path: Path) -> None:
+    """gate command should pass Budget(max_rollouts=None, max_cost_usd=X) to run_gate.
+
+    The rollout cap is deliberately None — gate is I/O-bounded by data size,
+    not by optimizer rollout count.  Only the cost ceiling is honored.
+    """
+    from unittest.mock import patch
+
+    from promptline.eval.harness import Budget
+
+    cfg_path, registry_dir, dev_path, val_path, env = _write_gate_fixture(tmp_path)
+    registry = _seed_gate_registry(registry_dir)
+    registry.activate("main", "base-1")
+
+    # Write a max_cost_usd into the config so we can verify it passes through.
+    import yaml
+
+    raw = yaml.safe_load(cfg_path.read_text())
+    raw["budget"]["max_cost_usd"] = 7.5
+    cfg_path.write_text(yaml.dump(raw))
+
+    captured: dict = {}
+
+    async def _fake_run_gate(**kwargs):
+        captured.update(kwargs)
+        # Short-circuit with a ValueError so the gate command exits 2 cleanly.
+        raise ValueError("test short-circuit")
+
+    with patch("promptline.registry.gate.run_gate", _fake_run_gate):
+        result = runner.invoke(
+            app,
+            [
+                "gate",
+                "--candidate", "good-1",
+                "--dev", str(dev_path),
+                "--val", str(val_path),
+                "--config", str(cfg_path),
+            ],
+            env=env,
+        )
+
+    # Gate refused to run (our fake raised ValueError) → exit 2.
+    assert result.exit_code == 2, result.output
+    assert "budget" in captured, f"run_gate was not called with budget; captured={captured}"
+    budget: Budget = captured["budget"]
+    assert budget.max_rollouts is None, "rollout cap must be None for gate runs"
+    assert budget.max_cost_usd == 7.5, "cost ceiling must come from config"

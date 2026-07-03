@@ -22,11 +22,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 from sse_starlette.sse import EventSourceResponse
 
 from promptline.registry.registry import PromptRegistry
-from promptline.server.runs import RunManager
+from promptline.server.runs import RunManager, RunStartError
 
 #: Seconds between tail polls of a live run's events.jsonl.
 _TAIL_POLL_S = 0.2
@@ -47,13 +48,19 @@ class StartRunRequest(BaseModel):
 
 
 class GateRequest(BaseModel):
-    """Body of ``POST /gate``; extra keys are passed through to gate_runner."""
+    """Body of ``POST /gate``; extra keys are passed through to gate_runner.
+
+    ``dev_path`` and ``val_path`` are optional here (the real gate_runner
+    requires them; missing values surface as a KeyError → 400).
+    """
 
     model_config = ConfigDict(extra="allow")
 
     program: str
     incumbent_id: str = ""
     candidate_ids: list[str] = []
+    dev_path: str = ""
+    val_path: str = ""
 
 
 class ActivateRequest(BaseModel):
@@ -97,9 +104,13 @@ def create_app(
         if info is None:
             raise HTTPException(404, f"no active prompt for program {program!r}")
         prompt_id: str = info["prompt_id"]
+        # RFC 7232 §2.3: ETag field value must be a quoted-string.
+        etag_value = f'"{prompt_id}"'
+        # Strip surrounding quotes from the client's If-None-Match header to
+        # compare the bare id; this handles both quoted and unquoted values.
         if_none_match = request.headers.get("if-none-match", "").strip('"')
         if if_none_match == prompt_id:
-            return Response(status_code=304, headers={"ETag": prompt_id})
+            return Response(status_code=304, headers={"ETag": etag_value})
         candidate = info["candidate"]
         body = {
             "program": program,
@@ -112,17 +123,28 @@ def create_app(
         return Response(
             content=json.dumps(body),
             media_type="application/json",
-            headers={"ETag": prompt_id},
+            headers={"ETag": etag_value},
         )
 
     # ---- Control plane: runs -------------------------------------------------
 
     @app.post("/runs")
     async def start_run(spec: StartRunRequest) -> dict:
-        # async so RunManager.start can create the task on the serving loop.
+        # async so RunManager.start creates the asyncio task on the serving loop.
         if run_starter is None:
             raise HTTPException(400, "run starting is not configured on this server")
-        run_id = run_manager.start(lambda emit: run_starter(spec, emit))
+        try:
+            run_id = run_manager.start(
+                lambda emit, run_dir: run_starter(spec, emit, run_dir)
+            )
+        except RunStartError as exc:
+            # Factory raised synchronously (e.g. dataset not found).  The run
+            # is already stored as failed; return 400 with the error and
+            # the run_id so the client can inspect GET /runs/{id}.
+            return JSONResponse(
+                status_code=400,
+                content={"detail": str(exc.cause), "run_id": exc.run_id},
+            )
         return {"run_id": run_id}
 
     @app.get("/runs")
@@ -179,9 +201,13 @@ def create_app(
     async def gate(payload: GateRequest) -> dict:
         if gate_runner is None:
             raise HTTPException(400, "gating is not configured on this server")
-        result = gate_runner(payload.model_dump())
-        if inspect.isawaitable(result):
-            result = await result
+        try:
+            result = gate_runner(payload.model_dump())
+            if inspect.isawaitable(result):
+                result = await result
+        except (ValueError, KeyError, FileNotFoundError) as exc:
+            # Covers: no incumbent, unknown candidate id, missing dev/val path.
+            raise HTTPException(400, str(exc)) from exc
         if isinstance(result, BaseModel):
             return result.model_dump()
         return result

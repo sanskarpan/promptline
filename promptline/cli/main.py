@@ -20,7 +20,7 @@ from rich.table import Table
 
 from promptline import __version__
 from promptline.core.config import PromptlineConfig, default_config_yaml, load_config
-from promptline.core.llm import FakeLLMClient
+from promptline.core.llm import FakeLLMClient, LLMError
 from promptline.core.program import ModelConfig, PromptProgram
 from promptline.core.types import Candidate, Example, ModuleState
 from promptline.data.dataset import Dataset
@@ -199,6 +199,60 @@ def _dataset_hash(path: str) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
 
 
+def _build_run_coro(
+    cfg: PromptlineConfig,
+    optimizer_choice: OptimizerChoice,
+    data_path: str,
+    budget: Budget,
+    emit,
+    run_dir: Path,
+    run_id: str,
+    registry: PromptRegistry,
+    resume: bool = False,
+):
+    """Return a coroutine that runs one optimization pass and registers the result.
+
+    All synchronous setup (loading examples, constructing the LLM client and
+    harness, building the optimizer) is performed here so that errors surface
+    immediately to the caller.  On the server side :class:`RunManager` wraps
+    this in a try/except and converts synchronous failures into
+    ``RunStartError`` → HTTP 400 rather than leaving a zombie run.
+
+    NOTE: when called from the gate sub-path, pass
+    ``budget=Budget(max_rollouts=None, max_cost_usd=cfg.budget.max_cost_usd)``
+    — gate runs are bounded by data size, not by rollout count; only the cost
+    ceiling is honored there.
+    """
+    examples = load_examples_jsonl(data_path)
+    program, seed = _build_program_and_seed(cfg)
+    client = _build_client(cfg)
+    harness = EvalHarness(client=client, cfg=_model_config(cfg))
+    opt = _build_optimizer(optimizer_choice, run_dir=run_dir, resume=resume)
+
+    async def _run():
+        result = await opt.optimize(
+            program=program,
+            seed=seed,
+            trainset=examples,
+            metric=default_metric,
+            budget=budget,
+            harness=harness,
+            emit=emit,
+        )
+        registry.register(result.best, cfg.program.name, run_id=run_id)
+        best_score = result.scores.get(result.best.id)
+        if isinstance(best_score, float) and best_score == best_score:
+            registry.record_eval(
+                result.best.id,
+                dataset_hash=_dataset_hash(data_path),
+                mean_score=best_score,
+                n=len(examples),
+            )
+        return result
+
+    return _run()
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -281,13 +335,15 @@ def optimize(
     if not Path(data_path).exists():
         console.print(f"[red]Dataset not found:[/red] {data_path}")
         raise typer.Exit(1)
-    examples = load_examples_jsonl(data_path)
-    if not examples:
+    # Validate + count examples before kicking off the optimizer.
+    try:
+        examples_preview = load_examples_jsonl(data_path)
+    except json.JSONDecodeError as exc:
+        typer.secho(f"Dataset parse error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+    if not examples_preview:
         console.print("[red]Dataset is empty.[/red]")
         raise typer.Exit(1)
-
-    # ---- Program & seed -----------------------------------------------------
-    program, seed = _build_program_and_seed(cfg)
 
     # ---- Budget -------------------------------------------------------------
     max_rollouts = budget if budget is not None else cfg.budget.max_rollouts
@@ -296,18 +352,9 @@ def optimize(
         max_cost_usd=cfg.budget.max_cost_usd,
     )
 
-    # ---- Client & harness ---------------------------------------------------
-    client = _build_client(cfg)
-    harness = EvalHarness(client=client, cfg=_model_config(cfg))
-
-    # ---- Run dir & optimizer --------------------------------------------------
+    # ---- Run dir & emit setup -----------------------------------------------
     run_id = resume or uuid.uuid4().hex
     run_dir = Path(cfg.registry.path) / "runs" / run_id
-    try:
-        opt = _build_optimizer(optimizer, run_dir=run_dir, resume=resume is not None)
-    except ValueError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(1) from exc
 
     # GEPA writes events/checkpoints to run_dir itself; for the other
     # optimizers the CLI-owned recorder captures the event stream.
@@ -318,23 +365,40 @@ def optimize(
         recorder = RunRecorder(run_dir)
         _emit = recorder.emit
 
-    async def _run():
-        return await opt.optimize(
-            program=program,
-            seed=seed,
-            trainset=examples,
-            metric=default_metric,
-            budget=run_budget,
-            harness=harness,
-            emit=_emit,
+    registry = PromptRegistry(Path(cfg.registry.path))
+
+    # ---- Build run coroutine (synchronous setup; errors → exit 1/2) ---------
+    try:
+        coro = _build_run_coro(
+            cfg,
+            optimizer,
+            data_path,
+            run_budget,
+            _emit,
+            run_dir,
+            run_id,
+            registry,
+            resume=resume is not None,
         )
+    except ValueError as exc:
+        # _build_optimizer raises ValueError for invalid --resume combinations.
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    except LLMError as exc:
+        typer.secho(f"LLM error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
 
     console.print(
         f"\nRunning [bold]{optimizer.value}[/bold] optimizer "
-        f"on {len(examples)} examples …"
+        f"on {len(examples_preview)} examples …"
     )
     console.print(f"[bold]Run id:[/bold] {run_id}")
-    result = asyncio.run(_run())
+
+    try:
+        result = asyncio.run(coro)
+    except LLMError as exc:
+        typer.secho(f"LLM error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
 
     # ---- Results table ------------------------------------------------------
     table = Table(title="Optimization Results", show_lines=True)
@@ -371,17 +435,7 @@ def optimize(
     console.print(f"\n[bold]Rollouts used:[/bold] {run_budget.rollouts_used}")
     console.print(f"[bold]Events emitted:[/bold] {result.events_count}")
 
-    # ---- Register best candidate ---------------------------------------------
-    registry = PromptRegistry(Path(cfg.registry.path))
-    registry.register(result.best, cfg.program.name, run_id=run_id)
-    best_score = result.scores.get(result.best.id)
-    if isinstance(best_score, float) and best_score == best_score:
-        registry.record_eval(
-            result.best.id,
-            dataset_hash=_dataset_hash(data_path),
-            mean_score=best_score,
-            n=len(examples),
-        )
+    # Registration is handled inside _build_run_coro; just report the id.
     console.print(f"[bold]Registered prompt:[/bold] {result.best.id}")
 
 
@@ -487,7 +541,11 @@ def calibrate(
     judge = PointwiseJudge(criterion=rubric, judge_model=judge_model)
 
     # ---- Calibrate -------------------------------------------------------------
-    client = _build_client(cfg)
+    try:
+        client = _build_client(cfg)
+    except LLMError as exc:
+        typer.secho(f"LLM error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
     declared_range: tuple[float, float] | None = None
     if label_min is not None and label_max is not None:
         declared_range = (label_min, label_max)
@@ -500,7 +558,11 @@ def calibrate(
         f"[bold]{criterion}[/bold] ({len(dataset)} gold records, "
         f"{len(calibrator.holdout)} holdout) …"
     )
-    cert = asyncio.run(calibrator.calibrate())
+    try:
+        cert = asyncio.run(calibrator.calibrate())
+    except LLMError as exc:
+        typer.secho(f"LLM error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
 
     # ---- Report -----------------------------------------------------------------
     table = Table(title="Calibration Certificate")
@@ -600,9 +662,17 @@ def gate(
 
     # ---- Gate ----------------------------------------------------------------------
     program, _ = _build_program_and_seed(cfg)
-    client = _build_client(cfg)
+    try:
+        client = _build_client(cfg)
+    except LLMError as exc:
+        typer.secho(f"LLM error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
     harness = EvalHarness(client=client, cfg=_model_config(cfg))
     settings = GateSettings.from_config(cfg.gate)
+
+    # Gate runs are I/O-bounded by data size, not by optimizer rollout count.
+    # The rollout cap is deliberately None; only the cost ceiling is honored.
+    gate_budget = Budget(max_rollouts=None, max_cost_usd=cfg.budget.max_cost_usd)
 
     console.print(
         f"\nGating {len(candidates)} candidate(s) against incumbent "
@@ -620,10 +690,14 @@ def gate(
                 harness=harness,
                 metric=default_metric,
                 settings=settings,
+                budget=gate_budget,
             )
         )
     except (ValueError, UncalibratedJudgeError) as exc:
         console.print(f"[red]Gate refused to run:[/red] {exc}")
+        raise typer.Exit(2) from exc
+    except LLMError as exc:
+        typer.secho(f"LLM error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
 
     # ---- Report table ------------------------------------------------------------
@@ -801,35 +875,32 @@ def build_app_from_config(config_path: str):
     registry = PromptRegistry(Path(cfg.registry.path))
     run_manager = RunManager(Path(cfg.registry.path) / "runs")
 
-    def run_starter(spec, emit):
+    def run_starter(spec, emit, run_dir: Path):
+        """Build and return the run coroutine for a server-started optimizer pass.
+
+        Receives ``(emit, run_dir)`` from :class:`~promptline.server.runs.RunManager`
+        via the :data:`~promptline.server.runs.CoroFactory` protocol.
+
+        Synchronous work (loading examples, constructing the LLM client) is
+        performed here; errors surface immediately so ``POST /runs`` returns
+        HTTP 400 (via :exc:`~promptline.server.runs.RunStartError`) rather than
+        leaving a zombie run stuck at ``status='running'``.
+
+        GEPA checkpointing is wired up via *run_dir*.  The ``run_id`` is
+        ``run_dir.name`` (the leaf directory component assigned by RunManager).
+        """
         choice = OptimizerChoice(spec.optimizer)
         data_path = spec.data_path or cfg.dataset.path
-        examples = load_examples_jsonl(data_path)
-        program, seed = _build_program_and_seed(cfg)
-        client = _build_client(cfg)
-        harness = EvalHarness(client=client, cfg=_model_config(cfg))
         run_budget = Budget(
             max_rollouts=(
                 spec.budget if spec.budget is not None else cfg.budget.max_rollouts
             ),
             max_cost_usd=cfg.budget.max_cost_usd,
         )
-        opt = _build_optimizer(choice)
-
-        async def _run():
-            result = await opt.optimize(
-                program=program,
-                seed=seed,
-                trainset=examples,
-                metric=default_metric,
-                budget=run_budget,
-                harness=harness,
-                emit=emit,
-            )
-            registry.register(result.best, cfg.program.name)
-            return result
-
-        return _run()
+        run_id = run_dir.name  # RunManager sets run_dir = base_dir / run_id
+        return _build_run_coro(
+            cfg, choice, data_path, run_budget, emit, run_dir, run_id, registry
+        )
 
     def gate_runner(payload: dict):
         from promptline.registry.gate import GateSettings, run_gate
