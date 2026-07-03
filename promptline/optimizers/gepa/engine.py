@@ -62,6 +62,14 @@ class GEPA(Optimizer):
     resume_from:
         Resume from the checkpoint in this directory (also used as
         ``run_dir`` when the latter is unset).
+
+    Notes
+    -----
+    **RNG state is not checkpointed.**  Resumed runs re-seed ``random.Random``
+    from ``rng_seed`` and therefore replay a *different* sampling sequence than
+    an uninterrupted run would have.  Candidate ids are preserved across resume
+    (restored from the checkpoint), but the minibatch and Pareto-sampling
+    sequences diverge from what the uninterrupted run would have produced.
     """
 
     name = "gepa"
@@ -169,6 +177,10 @@ class GEPA(Optimizer):
         for res in report.per_example:
             vector[res.example_idx] = res.score
         state.add(candidate, vector)
+        if report.truncated or report.n < len(d_pareto):
+            state.partial.add(candidate.id)
+        else:
+            state.partial.discard(candidate.id)
         emit(
             RunEvent.now(
                 "full_eval",
@@ -269,7 +281,13 @@ class GEPA(Optimizer):
         rng: random.Random,
         emit: Callable[[RunEvent], None],
     ) -> bool:
-        """Try one system-aware merge; returns True when a child was accepted."""
+        """Try one system-aware merge; returns True when a child was accepted.
+
+        Acceptance criterion (Appendix F): the merged child's minibatch score must
+        be >= the better of its two parents (not strict >).  A tied score is treated
+        as a win because system-aware merge reduces per-module variance without
+        requiring a net improvement on the shared minibatch.
+        """
         frontier = sorted(frontier_candidates(state.scores))
         pairs = [
             (a, b)
@@ -418,16 +436,47 @@ class GEPA(Optimizer):
 
         # Step 0 (fresh runs): full-eval the seed on D_pareto.
         if seed.id not in state.pool:
-            await self._full_eval(
-                state, program, seed, d_pareto, metric, budget, harness, _emit
-            )
-            self._checkpoint(state, budget)
+            if resumed_state is not None:
+                # On resume the seed id may differ from what was checkpointed.
+                # If a pool candidate has identical module content, treat it as
+                # the seed (no re-eval, no duplicate).
+                matching = next(
+                    (cid for cid, cand in state.pool.items()
+                     if cand.modules == seed.modules),
+                    None,
+                )
+                if matching is None:
+                    raise ValueError(
+                        "resume pool does not contain the provided seed"
+                    )
+                # else: identical candidate already in pool; skip re-eval.
+            else:
+                await self._full_eval(
+                    state, program, seed, d_pareto, metric, budget, harness, _emit
+                )
+                self._checkpoint(state, budget)
+
+        # Repair partial Pareto vectors before main loop (resume only).
+        if resumed_state is not None:
+            for cid in list(state.partial):
+                if not budget.exhausted:
+                    await self._full_eval(
+                        state, program, state.pool[cid], d_pareto, metric,
+                        budget, harness, _emit,
+                    )
 
         # ----------------------------------------------------------------
         # Main loop
         # ----------------------------------------------------------------
         while state.iteration < self.max_iterations and not budget.exhausted:
             state.iteration += 1
+            _emit(RunEvent.now(
+                "budget_tick",
+                rollouts_used=budget.rollouts_used,
+                cost_used=budget.cost_used,
+                max_rollouts=budget.max_rollouts,
+                max_cost_usd=budget.max_cost_usd,
+            ))
 
             do_merge = (
                 self.use_merge

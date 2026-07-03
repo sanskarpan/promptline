@@ -23,6 +23,7 @@ class GepaState:
     def __init__(self) -> None:
         self.pool: dict[str, Candidate] = {}
         self.scores: dict[str, list[float]] = {}
+        self.partial: set[str] = set()
         self.iteration: int = 0
         self.merges_done: int = 0
         self.accepted_count: int = 0
@@ -58,6 +59,7 @@ class GepaState:
         return {
             "candidates": [c.model_dump() for c in self.pool.values()],
             "scores": {cid: list(vec) for cid, vec in self.scores.items()},
+            "partial": list(self.partial),
             "iteration": self.iteration,
             "merges_done": self.merges_done,
             "accepted_count": self.accepted_count,
@@ -76,6 +78,7 @@ class GepaState:
             cid: [float(s) for s in vec]
             for cid, vec in data.get("scores", {}).items()
         }
+        state.partial = set(data.get("partial", []))
         state.iteration = int(data.get("iteration", 0))
         state.merges_done = int(data.get("merges_done", 0))
         state.accepted_count = int(data.get("accepted_count", 0))

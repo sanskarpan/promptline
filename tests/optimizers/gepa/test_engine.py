@@ -75,6 +75,15 @@ def _collector() -> tuple[list[RunEvent], object]:
     return events, events.append
 
 
+def _always_marker_client() -> FakeLLMClient:
+    """Every task call returns the MARKER so _marker_metric scores 1.0 unconditionally."""
+
+    def _respond(call: LLMCall) -> str:
+        return f"[[answer]]: always cited. {MARKER}"
+
+    return FakeLLMClient(script=_respond)
+
+
 # ---------------------------------------------------------------------------
 # Improvement loop
 # ---------------------------------------------------------------------------
@@ -337,3 +346,174 @@ async def test_events_emitted() -> None:
     } <= types
     assert events[0].type == "run_started"
     assert events[-1].type == "run_finished"
+
+
+# ---------------------------------------------------------------------------
+# Finding 1 — Truncated full-eval corrupts Pareto matrix
+# ---------------------------------------------------------------------------
+
+
+async def test_full_eval_truncated_marks_partial() -> None:
+    """Budget-truncated full eval stores 0-filled vector and marks candidate as partial."""
+    program = _program()
+    seed = _seed(program)
+    state = GepaState()
+    d_pareto = _trainset(4)
+    # Allow only 2 of 4 rollouts so eval is truncated
+    budget = Budget(max_rollouts=2)
+    events: list[RunEvent] = []
+    await GEPA(minibatch_size=2)._full_eval(
+        state, program, seed, d_pareto, _marker_metric,
+        budget, _harness(_client("plain")), events.append,
+    )
+    assert seed.id in state.partial
+    assert len(state.scores[seed.id]) == 4  # 0.0-filled alignment
+
+
+async def test_resume_repairs_partial_vector(tmp_path: Path) -> None:
+    """Resume with fresh budget re-evaluates partial candidates; clears partial flag."""
+    import json
+    program = _program()
+    seed = _seed(program)
+    trainset = _trainset(8)
+    run_dir = tmp_path / "run"
+
+    # Phase 1: budget so tight only 2 of 4 pareto examples evaluated → partial
+    await GEPA(
+        minibatch_size=2, n_pareto=4, max_iterations=0, use_merge=False,
+        run_dir=run_dir,
+    ).optimize(
+        program, seed, trainset, _marker_metric,
+        Budget(max_rollouts=2),
+        _harness(_client("plain")),  # 0.0 scores
+    )
+
+    cp = json.loads((run_dir / "checkpoint.json").read_text())
+    assert seed.id in cp.get("partial", []), "checkpoint must record partial flag"
+
+    # Phase 2: resume with generous budget and a scoring client → repair
+    result = await GEPA(
+        minibatch_size=2, n_pareto=4, max_iterations=0, use_merge=False,
+        resume_from=run_dir,
+    ).optimize(
+        program, seed, trainset, _marker_metric,
+        Budget(max_rollouts=100),
+        _harness(_always_marker_client()),  # 1.0 scores
+    )
+
+    assert result.scores[seed.id] == 1.0, "after repair vector reflects true mean"
+
+
+# ---------------------------------------------------------------------------
+# Finding 2 — budget_tick never emitted
+# ---------------------------------------------------------------------------
+
+
+async def test_budget_tick_emitted_monotonically() -> None:
+    """budget_tick events are emitted each iteration with nondecreasing rollouts_used."""
+    program = _program()
+    seed = _seed(program)
+    events, emit = _collector()
+    await GEPA(minibatch_size=2, max_iterations=3, use_merge=False).optimize(
+        program, seed, _trainset(),
+        _marker_metric,
+        Budget(max_rollouts=100),
+        _harness(_client(f"Answer. {MARKER} sources.")),
+        emit=emit,
+    )
+    ticks = [e for e in events if e.type == "budget_tick"]
+    assert len(ticks) >= 1
+    used = [e.payload["rollouts_used"] for e in ticks]
+    assert used == sorted(used), "rollouts_used must be nondecreasing"
+
+
+# ---------------------------------------------------------------------------
+# Finding 3 — Resume seed-id guard
+# ---------------------------------------------------------------------------
+
+
+async def test_resume_seed_guard_identical_modules(tmp_path: Path) -> None:
+    """On resume, if seed id differs but modules match a pool candidate, no re-eval."""
+    program = _program()
+    seed = _seed(program)
+    run_dir = tmp_path / "run"
+    client = _client(f"Answer. {MARKER}")
+
+    await GEPA(
+        minibatch_size=2, max_iterations=1, use_merge=False, run_dir=run_dir
+    ).optimize(
+        program, seed, _trainset(), _marker_metric,
+        Budget(max_rollouts=100), _harness(client),
+    )
+
+    # Build a new seed with the SAME modules but a new id (simulates re-init)
+    new_seed = Candidate.seed(modules=dict(seed.modules))
+    assert new_seed.id != seed.id
+
+    second = await GEPA(
+        minibatch_size=2, max_iterations=1, use_merge=False, resume_from=run_dir
+    ).optimize(
+        program, new_seed, _trainset(), _marker_metric,
+        Budget(max_rollouts=100), _harness(client),
+    )
+    # Original seed id still in pool; no duplicate added
+    assert seed.id in {c.id for c in second.candidates}
+    assert new_seed.id not in {c.id for c in second.candidates}
+
+
+async def test_resume_seed_guard_raises_on_mismatch(tmp_path: Path) -> None:
+    """On resume, if seed modules don't match any pool candidate, raise ValueError."""
+    import pytest
+    program = _program()
+    seed = _seed(program)
+    run_dir = tmp_path / "run"
+
+    await GEPA(
+        minibatch_size=2, max_iterations=1, use_merge=False, run_dir=run_dir
+    ).optimize(
+        program, seed, _trainset(), _marker_metric,
+        Budget(max_rollouts=100), _harness(_client(f"Answer. {MARKER}")),
+    )
+
+    alien_seed = Candidate.seed(
+        modules={"main": ModuleState(instruction="Completely different instruction.")}
+    )
+    with pytest.raises(ValueError, match="resume pool does not contain the provided seed"):
+        await GEPA(
+            minibatch_size=2, max_iterations=1, use_merge=False, resume_from=run_dir
+        ).optimize(
+            program, alien_seed, _trainset(), _marker_metric,
+            Budget(max_rollouts=100), _harness(_client("plain")),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Finding 4 — Merge scheduler untested
+# ---------------------------------------------------------------------------
+
+
+async def test_merge_scheduler_emits_merge_attempted() -> None:
+    """Scheduler calls _attempt_merge via the main loop after merge_every acceptances."""
+    program = _program()
+    seed = _seed(program)
+    events, emit = _collector()
+
+    await GEPA(
+        minibatch_size=2,
+        max_iterations=5,
+        use_merge=True,
+        merge_every=1,
+        max_merges=2,
+    ).optimize(
+        program,
+        seed,
+        _trainset(),
+        _marker_metric,
+        Budget(max_rollouts=200),
+        _harness(_client(f"Answer. {MARKER} sources.")),
+        emit=emit,
+    )
+
+    # merge_attempted must be emitted by the scheduler (not a direct call)
+    merge_events = [e for e in events if e.type == "merge_attempted"]
+    assert len(merge_events) >= 1
