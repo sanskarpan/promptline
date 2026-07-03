@@ -202,20 +202,26 @@ class OPRO(Optimizer):
             traj_sorted = sorted(trajectory, key=lambda t: t[1])
 
             meta_prompt = _build_meta_prompt(seed_context, traj_sorted)
-            meta_messages = (
-                Message(role="user", content=meta_prompt),
-            )
 
             # Propose candidates_per_step new instructions.
-            for _ in range(self.candidates_per_step):
+            for i in range(self.candidates_per_step):
                 if budget.exhausted:
                     break
 
+                # Each proposal gets a unique seed and a nonce appended to its
+                # user message so that a CachingClient keyed on LLMCall.key()
+                # cannot collapse all proposals within a step to the same cached
+                # response.
+                nonce_content = (
+                    meta_prompt
+                    + f"\nProposal #{i + 1} of {self.candidates_per_step}."
+                )
                 llm_call = LLMCall(
                     model=proposer_model,
-                    messages=meta_messages,
+                    messages=(Message(role="user", content=nonce_content),),
                     temperature=1.0,
                     max_tokens=harness.cfg.max_tokens,
+                    seed=step * 1000 + i,
                 )
                 resp = await harness.client.complete(llm_call)
                 budget.add_cost(resp.cost_usd)

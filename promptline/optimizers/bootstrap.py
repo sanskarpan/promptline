@@ -89,8 +89,11 @@ class BootstrapFewShot(Optimizer):
 
             total += 1
 
-            prediction = await program.run(example, seed, harness.client, harness.cfg)
-            budget.add_cost(prediction.cost_usd)
+            try:
+                prediction = await program.run(example, seed, harness.client, harness.cfg)
+                budget.add_cost(prediction.cost_usd)
+            except Exception:
+                continue
 
             if prediction.failed:
                 continue
@@ -139,13 +142,23 @@ class BootstrapFewShot(Optimizer):
             )
         )
 
-        score = passed / total if total > 0 else 0.0
+        # Seed pass-rate is recorded under seed.id.
+        seed_score = passed / total if total > 0 else 0.0
+        scores: dict[str, float] = {seed.id: seed_score}
+
+        # Evaluate the augmented candidate on the collection set if budget allows,
+        # and record its true mean score under best.id.  If budget is already
+        # exhausted, omit best.id from scores rather than recording a stale value.
+        if not budget.exhausted:
+            report = await harness.evaluate(program, best, shuffled, metric, budget)
+            scores[best.id] = report.mean_score
+
         _emit(RunEvent.now("run_finished", optimizer=self.name, best_id=best.id))
 
         return OptimizeResult(
             best=best,
             candidates=[seed, best],
-            scores={best.id: score},
+            scores=scores,
             events_count=len(events),
         )
 
@@ -226,8 +239,11 @@ class BootstrapRandomSearch(Optimizer):
             if not reserved:
                 break
 
-            prediction = await program.run(example, seed, harness.client, harness.cfg)
-            budget.add_cost(prediction.cost_usd)
+            try:
+                prediction = await program.run(example, seed, harness.client, harness.cfg)
+                budget.add_cost(prediction.cost_usd)
+            except Exception:
+                continue
 
             if prediction.failed:
                 continue
@@ -307,6 +323,11 @@ class BootstrapRandomSearch(Optimizer):
             if score > best_score:
                 best_score = score
                 best_candidate = candidate
+
+        # Guarantee the returned best always has a score entry so callers
+        # (including the CLI) can safely look it up without a missing-key crash.
+        if best_candidate.id not in all_scores:
+            all_scores[best_candidate.id] = 0.0
 
         _emit(
             RunEvent.now(

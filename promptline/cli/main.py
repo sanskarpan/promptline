@@ -279,10 +279,12 @@ def optimize(
 
     # Best instruction panel.
     best_first_mod = next(iter(result.best.modules.values()))
+    _best_raw = result.scores.get(result.best.id)
+    _best_score_str = f"{_best_raw:.3f}" if isinstance(_best_raw, float) else "n/a"
     console.print(
         Panel(
             best_first_mod.instruction,
-            title=f"Best Instruction (score={result.scores.get(result.best.id, '?'):.3f})",
+            title=f"Best Instruction (score={_best_score_str})",
             border_style="green",
         )
     )

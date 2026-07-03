@@ -173,35 +173,101 @@ async def test_opro_budget_early_stop() -> None:
 
 
 @pytest.mark.asyncio
-async def test_opro_trajectory_cap() -> None:
-    """Trajectory should not exceed max_trajectory entries."""
+async def test_opro_trajectory_ascending_and_capped() -> None:
+    """Meta-prompt trajectory must be ascending by score and capped at max_trajectory.
+
+    Finding 5b: inspect the messages received by the proposer model to verify
+    that the score list embedded in the meta-prompt is always ascending (worst
+    first, best last) and never longer than max_trajectory entries.
+    """
+    import re as _re
+
     program = _program()
     seed = _seed(program)
 
-    instructions_seen: list[str] = []
+    captured_meta_prompts: list[str] = []
+    call_counter = {"n": 0}
 
     def _proposer_client(call: LLMCall) -> str:
-        # If it looks like a meta-prompt, generate a unique instruction.
         if call.messages and "Write a new instruction" in call.messages[-1].content:
-            n = len(instructions_seen)
-            instr = f"<INS>Instruction variant {n}.</INS>"
-            instructions_seen.append(instr)
-            return instr
+            captured_meta_prompts.append(call.messages[-1].content)
+            call_counter["n"] += 1
+            return f"<INS>Instruction variant {call_counter['n']}.</INS>"
         return "[[answer]]: yes"
 
     client = FakeLLMClient(script=_proposer_client)
     harness = EvalHarness(client=client, cfg=_model_cfg())
-    budget = Budget(max_rollouts=100)
+    budget = Budget(max_rollouts=200)
 
     examples = [Example(inputs={"question": "q"}) for _ in range(2)]
 
-    opt = OPRO(n_steps=5, candidates_per_step=3, max_trajectory=5, rng_seed=0)
+    max_traj = 5
+    opt = OPRO(n_steps=6, candidates_per_step=3, max_trajectory=max_traj, rng_seed=0)
     result = await opt.optimize(
         program, seed, examples, _always_pass_metric, budget, harness
     )
 
-    # Verify the optimizer didn't crash and returned multiple candidates.
     assert len(result.candidates) > 1
+    assert len(captured_meta_prompts) > 0, "No proposer calls were captured"
+
+    for prompt_text in captured_meta_prompts:
+        # Extract score values from lines like: score=0.5000: "..."
+        scores_in_prompt = [
+            float(m) for m in _re.findall(r"score=([\d.]+):", prompt_text)
+        ]
+        # Must be in ascending order (worst first, best last).
+        assert scores_in_prompt == sorted(scores_in_prompt), (
+            f"Trajectory not ascending in meta-prompt: {scores_in_prompt}"
+        )
+        # Must not exceed max_trajectory cap.
+        assert len(scores_in_prompt) <= max_traj, (
+            f"Trajectory length {len(scores_in_prompt)} exceeds cap {max_traj}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Finding 3: OPRO cache collapse — proposer calls must have distinct keys
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_opro_proposer_distinct_keys() -> None:
+    """All proposer LLMCalls within a single step must have distinct cache keys.
+
+    Finding 3: before the fix every call in a step shared the same LLMCall,
+    so a CachingClient would return the same proposal for each slot.  After the
+    fix each call gets a unique seed + nonce appended to the user message, which
+    changes the .key() hash.
+    """
+    program = _program()
+    seed = _seed(program)
+
+    proposer_calls: list[LLMCall] = []
+
+    def _recording_client(call: LLMCall) -> str:
+        if call.messages and "Write a new instruction" in call.messages[-1].content:
+            proposer_calls.append(call)
+            return "<INS>Some new instruction.</INS>"
+        return "[[answer]]: yes"
+
+    client = FakeLLMClient(script=_recording_client)
+    harness = EvalHarness(client=client, cfg=_model_cfg())
+    budget = Budget(max_rollouts=100)
+    examples = [Example(inputs={"question": "q"}) for _ in range(2)]
+
+    k = 3  # candidates_per_step
+    opt = OPRO(n_steps=1, candidates_per_step=k, rng_seed=0)
+    await opt.optimize(program, seed, examples, _always_pass_metric, budget, harness)
+
+    # We should have recorded exactly k proposer calls for step 1.
+    assert len(proposer_calls) == k, (
+        f"Expected {k} proposer calls, got {len(proposer_calls)}"
+    )
+    keys = [c.key() for c in proposer_calls]
+    assert len(set(keys)) == k, (
+        f"All {k} proposer calls must have distinct .key() hashes. "
+        f"Got {len(set(keys))} distinct out of {k}."
+    )
 
 
 @pytest.mark.asyncio
