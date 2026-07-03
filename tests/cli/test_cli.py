@@ -41,7 +41,13 @@ def _write_fake_script(path: Path, responses: list[str]) -> None:
     path.write_text(json.dumps({"responses": responses}))
 
 
-def _write_config(path: Path, instruction: str = "Answer the question.") -> None:
+def _write_config(
+    path: Path,
+    instruction: str = "Answer the question.",
+    registry_path: str = ".promptline_test",
+    max_rollouts: int = 20,
+    min_examples: int = 50,
+) -> None:
     cfg = {
         "program": {
             "name": "main",
@@ -51,8 +57,9 @@ def _write_config(path: Path, instruction: str = "Answer the question.") -> None
         },
         "models": {"task": "fake/model", "reflection": "", "judge": ""},
         "dataset": {"kind": "jsonl", "path": ""},
-        "budget": {"max_rollouts": 20, "max_cost_usd": None},
-        "registry": {"path": ".promptline_test"},
+        "budget": {"max_rollouts": max_rollouts, "max_cost_usd": None},
+        "gate": {"alpha": 0.05, "min_examples": min_examples},
+        "registry": {"path": registry_path},
     }
     path.write_text(yaml.dump(cfg))
 
@@ -450,3 +457,396 @@ def test_data_prepare_no_flags_exits_0() -> None:
     """data prepare without flags must also exit 0."""
     result = runner.invoke(app, ["data", "prepare"])
     assert result.exit_code == 0, result.output
+
+
+# ---------------------------------------------------------------------------
+# optimize: gepa / protegi / resume / registration
+# ---------------------------------------------------------------------------
+
+
+def test_optimize_gepa_registers_prompt(tmp_path: Path) -> None:
+    """optimize --optimizer gepa must exit 0 and register the best prompt."""
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    fake_path = tmp_path / "fake_script.json"
+    registry_dir = tmp_path / "reg"
+
+    _write_config(cfg_path, registry_path=str(registry_dir))
+    _write_jsonl(data_path, _make_examples(4))
+    _write_fake_script(fake_path, _make_fake_responses(4))
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    result = runner.invoke(
+        app,
+        [
+            "optimize",
+            "--optimizer", "gepa",
+            "--config", str(cfg_path),
+            "--data", str(data_path),
+            "--budget", "8",
+        ],
+        env=env,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "Registered prompt:" in result.output
+    assert "Run id:" in result.output
+
+    from promptline.registry.registry import PromptRegistry
+
+    registry = PromptRegistry(registry_dir)
+    prompts = registry.list_prompts("main")
+    assert len(prompts) == 1
+    # Run events were persisted under <registry>/runs/<run_id>/.
+    run_dirs = list((registry_dir / "runs").iterdir())
+    assert len(run_dirs) == 1
+    assert (run_dirs[0] / "events.jsonl").exists()
+
+
+def test_optimize_protegi_exit_0_and_registers(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    fake_path = tmp_path / "fake_script.json"
+    registry_dir = tmp_path / "reg"
+
+    _write_config(cfg_path, registry_path=str(registry_dir))
+    _write_jsonl(data_path, _make_examples(3))
+    _write_fake_script(fake_path, _make_fake_responses(3))
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    result = runner.invoke(
+        app,
+        [
+            "optimize",
+            "--optimizer", "protegi",
+            "--config", str(cfg_path),
+            "--data", str(data_path),
+            "--budget", "10",
+        ],
+        env=env,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+
+    from promptline.registry.registry import PromptRegistry
+
+    assert len(PromptRegistry(registry_dir).list_prompts("main")) == 1
+
+
+def test_optimize_resume_rejected_for_non_gepa(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    fake_path = tmp_path / "fake_script.json"
+
+    _write_config(cfg_path)
+    _write_jsonl(data_path, _make_examples(3))
+    _write_fake_script(fake_path, _make_fake_responses(3))
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    result = runner.invoke(
+        app,
+        [
+            "optimize",
+            "--optimizer", "bootstrap",
+            "--config", str(cfg_path),
+            "--data", str(data_path),
+            "--resume", "someid",
+        ],
+        env=env,
+    )
+    assert result.exit_code == 1
+    assert "resume" in result.output
+
+
+# ---------------------------------------------------------------------------
+# gate command
+# ---------------------------------------------------------------------------
+
+
+def _seed_gate_registry(registry_dir: Path):
+    """Register a baseline and a challenger prompt; return (registry, ids)."""
+    from promptline.core.types import Candidate, ModuleState
+    from promptline.registry.registry import PromptRegistry
+
+    registry = PromptRegistry(registry_dir)
+    base = Candidate(
+        id="base-1", modules={"main": ModuleState(instruction="base answer")}
+    )
+    good = Candidate(
+        id="good-1", modules={"main": ModuleState(instruction="good answer")}
+    )
+    meh = Candidate(
+        id="meh-1", modules={"main": ModuleState(instruction="meh answer")}
+    )
+    registry.register(base, "main")
+    registry.register(good, "main")
+    registry.register(meh, "main")
+    return registry
+
+
+def _write_gate_fixture(tmp_path: Path, min_examples: int = 20):
+    """Config + dev/val splits + keyed fake script for gate tests."""
+    cfg_path = tmp_path / "promptline.yaml"
+    registry_dir = tmp_path / "reg"
+    _write_config(
+        cfg_path,
+        registry_path=str(registry_dir),
+        min_examples=min_examples,
+    )
+    dev_path = tmp_path / "dev.jsonl"
+    val_path = tmp_path / "val.jsonl"
+    _write_jsonl(
+        dev_path,
+        [
+            {"inputs": {"question": f"d{i}"}, "labels": {"answer": "RIGHT"}}
+            for i in range(25)
+        ],
+    )
+    _write_jsonl(
+        val_path,
+        [
+            {"inputs": {"question": f"v{i}"}, "labels": {"answer": "RIGHT"}}
+            for i in range(12)
+        ],
+    )
+    fake_path = tmp_path / "fake_script.json"
+    fake_path.write_text(
+        json.dumps(
+            {
+                # Candidate 'good answer' solves every example; everyone
+                # else (base/meh) answers WRONG.
+                "keyed": [
+                    {"contains": "good answer", "response": "[[answer]]: RIGHT"}
+                ],
+                "responses": ["[[answer]]: WRONG"],
+            }
+        )
+    )
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    return cfg_path, registry_dir, dev_path, val_path, env
+
+
+def test_gate_requires_active_baseline(tmp_path: Path) -> None:
+    cfg_path, registry_dir, dev_path, val_path, env = _write_gate_fixture(tmp_path)
+    _seed_gate_registry(registry_dir)
+    result = runner.invoke(
+        app,
+        [
+            "gate",
+            "--candidate", "good-1",
+            "--dev", str(dev_path),
+            "--val", str(val_path),
+            "--config", str(cfg_path),
+        ],
+        env=env,
+    )
+    assert result.exit_code == 2, result.output
+    assert "activate a baseline first" in result.output.lower()
+
+
+def test_gate_promotes_better_candidate(tmp_path: Path) -> None:
+    cfg_path, registry_dir, dev_path, val_path, env = _write_gate_fixture(tmp_path)
+    registry = _seed_gate_registry(registry_dir)
+
+    # Activate the baseline via the CLI.
+    activate = runner.invoke(
+        app,
+        ["registry", "activate", "base-1", "--config", str(cfg_path)],
+        env=env,
+        catch_exceptions=False,
+    )
+    assert activate.exit_code == 0, activate.output
+    assert "Warning" in activate.output  # baseline bootstrap warning
+
+    result = runner.invoke(
+        app,
+        [
+            "gate",
+            "--candidate", "good-1",
+            "--dev", str(dev_path),
+            "--val", str(val_path),
+            "--config", str(cfg_path),
+        ],
+        env=env,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "promote" in result.output.lower()
+
+    active = registry.get_active("main")
+    assert active is not None and active[0] == "good-1"
+
+    # Report JSON persisted under the registry dir.
+    reports = list((registry_dir / "gate_reports").glob("*.json"))
+    assert len(reports) == 1
+    report = json.loads(reports[0].read_text())
+    assert report["verdict"] == "promote"
+    assert report["winner_id"] == "good-1"
+
+
+def test_gate_rejects_null_candidate_exit_1(tmp_path: Path) -> None:
+    cfg_path, registry_dir, dev_path, val_path, env = _write_gate_fixture(tmp_path)
+    registry = _seed_gate_registry(registry_dir)
+    registry.activate("main", "base-1")
+
+    result = runner.invoke(
+        app,
+        [
+            "gate",
+            "--candidate", "meh-1",
+            "--dev", str(dev_path),
+            "--val", str(val_path),
+            "--config", str(cfg_path),
+        ],
+        env=env,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 1, result.output
+    assert "reject" in result.output.lower()
+    active = registry.get_active("main")
+    assert active is not None and active[0] == "base-1"
+
+
+def test_gate_refusal_on_small_dev_exit_2(tmp_path: Path) -> None:
+    cfg_path, registry_dir, dev_path, val_path, env = _write_gate_fixture(
+        tmp_path, min_examples=100
+    )
+    registry = _seed_gate_registry(registry_dir)
+    registry.activate("main", "base-1")
+
+    result = runner.invoke(
+        app,
+        [
+            "gate",
+            "--candidate", "good-1",
+            "--dev", str(dev_path),
+            "--val", str(val_path),
+            "--config", str(cfg_path),
+        ],
+        env=env,
+    )
+    assert result.exit_code == 2, result.output
+    assert "refused" in result.output.lower()
+
+
+def test_gate_unknown_candidate_exit_2(tmp_path: Path) -> None:
+    cfg_path, registry_dir, dev_path, val_path, env = _write_gate_fixture(tmp_path)
+    registry = _seed_gate_registry(registry_dir)
+    registry.activate("main", "base-1")
+
+    result = runner.invoke(
+        app,
+        [
+            "gate",
+            "--candidate", "ghost",
+            "--dev", str(dev_path),
+            "--val", str(val_path),
+            "--config", str(cfg_path),
+        ],
+        env=env,
+    )
+    assert result.exit_code == 2, result.output
+
+
+# ---------------------------------------------------------------------------
+# registry sub-app
+# ---------------------------------------------------------------------------
+
+
+def test_registry_list_show_activate_rollback(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "promptline.yaml"
+    registry_dir = tmp_path / "reg"
+    _write_config(cfg_path, registry_path=str(registry_dir))
+    registry = _seed_gate_registry(registry_dir)
+
+    # list shows all registered prompts.
+    listing = runner.invoke(
+        app, ["registry", "list", "--config", str(cfg_path)],
+        catch_exceptions=False,
+    )
+    assert listing.exit_code == 0, listing.output
+    for pid in ("base-1", "good-1", "meh-1"):
+        assert pid in listing.output
+
+    # show prints the instruction.
+    show = runner.invoke(
+        app, ["registry", "show", "good-1", "--config", str(cfg_path)],
+        catch_exceptions=False,
+    )
+    assert show.exit_code == 0, show.output
+    assert "good answer" in show.output
+    assert "Lineage" in show.output
+
+    # show unknown id fails.
+    assert (
+        runner.invoke(
+            app, ["registry", "show", "nope", "--config", str(cfg_path)]
+        ).exit_code
+        == 1
+    )
+
+    # activate two prompts then rollback to the first.
+    assert (
+        runner.invoke(
+            app, ["registry", "activate", "base-1", "--config", str(cfg_path)],
+            catch_exceptions=False,
+        ).exit_code
+        == 0
+    )
+    assert (
+        runner.invoke(
+            app, ["registry", "activate", "good-1", "--config", str(cfg_path)],
+            catch_exceptions=False,
+        ).exit_code
+        == 0
+    )
+    rollback = runner.invoke(
+        app, ["registry", "rollback", "--config", str(cfg_path)],
+        catch_exceptions=False,
+    )
+    assert rollback.exit_code == 0, rollback.output
+    active = registry.get_active("main")
+    assert active is not None and active[0] == "base-1"
+
+    # rollback with no further history fails cleanly.
+    assert (
+        runner.invoke(
+            app, ["registry", "rollback", "--config", str(cfg_path)]
+        ).exit_code
+        == 1
+    )
+
+    # activate unknown prompt fails.
+    assert (
+        runner.invoke(
+            app, ["registry", "activate", "ghost", "--config", str(cfg_path)]
+        ).exit_code
+        == 1
+    )
+
+
+# ---------------------------------------------------------------------------
+# serve (app factory smoke test — no uvicorn)
+# ---------------------------------------------------------------------------
+
+
+def test_build_app_from_config_smoke(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from promptline.cli.main import build_app_from_config
+
+    cfg_path = tmp_path / "promptline.yaml"
+    registry_dir = tmp_path / "reg"
+    _write_config(cfg_path, registry_path=str(registry_dir))
+
+    server_app = build_app_from_config(str(cfg_path))
+    with TestClient(server_app) as client:
+        assert client.get("/prompts/main/active").status_code == 404
+        assert client.get("/runs").json() == []
+
+        # Serving plane reflects direct registry writes.
+        registry = _seed_gate_registry(registry_dir)
+        registry.activate("main", "base-1")
+        resp = client.get("/prompts/main/active")
+        assert resp.status_code == 200
+        assert resp.json()["prompt_id"] == "base-1"
