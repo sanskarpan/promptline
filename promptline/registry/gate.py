@@ -50,7 +50,12 @@ class GateSettings:
     @classmethod
     def from_config(cls, cfg: GateConfig) -> GateSettings:
         """Build settings from the ``gate`` section of PromptlineConfig."""
-        return cls(alpha=cfg.alpha, min_examples=cfg.min_examples)
+        return cls(
+            alpha=cfg.alpha,
+            min_examples=cfg.min_examples,
+            require_certificate_path=Path(cfg.certificate) if cfg.certificate else None,
+            min_kappa=cfg.min_kappa,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -327,12 +332,19 @@ async def run_gate(
             created_at=created_at,
         )
 
+    paired_val_n = len(val_deltas)
+    if paired_val_n < settings.min_examples:
+        warnings.append(f"val truncated to n={paired_val_n} (< min_examples)")
+
     val_mean_delta, val_ci_low, val_ci_high = paired_bootstrap_ci(
         val_deltas, alpha=settings.alpha
     )
     verdict: Literal["promote", "reject"] = (
         "promote" if val_ci_low > 0 else "reject"
     )
+    if paired_val_n < 10:
+        flags.append("val_too_small")
+        verdict = "reject"
     return GateReport(
         program=program_name,
         incumbent_id=incumbent.id,

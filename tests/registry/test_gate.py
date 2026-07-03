@@ -260,6 +260,113 @@ async def test_small_val_warning() -> None:
     assert any("20" in w for w in report.warnings)
 
 
+async def test_val_truncation_warning_but_still_promotes() -> None:
+    """Paired val n below min_examples warns but does not block (n >= 10)."""
+    report = await run_gate(
+        program=_program(),
+        incumbent=_cand("base"),
+        candidates=[_cand("good")],
+        dev=DEV,
+        val=_examples(20, offset=1000),
+        harness=_harness(),
+        metric=_metric,
+        settings=_settings(),
+    )
+    assert any(w.startswith("val truncated to n=20") for w in report.warnings)
+    assert report.verdict == "promote"
+    assert "val_too_small" not in report.flags
+
+
+async def test_tiny_paired_val_forces_reject() -> None:
+    """Paired val n < 10 must force the verdict to reject with a flag."""
+    report = await run_gate(
+        program=_program(),
+        incumbent=_cand("base"),
+        candidates=[_cand("good")],
+        dev=DEV,
+        val=_examples(8, offset=1000),
+        harness=_harness(),
+        metric=_metric,
+        settings=_settings(),
+    )
+    assert report.verdict == "reject"
+    assert "val_too_small" in report.flags
+    assert any(w.startswith("val truncated to n=8") for w in report.warnings)
+
+
+# ---------------------------------------------------------------------------
+# Settings plumbing
+# ---------------------------------------------------------------------------
+
+
+def test_settings_from_config_plumbs_certificate_and_kappa() -> None:
+    from promptline.core.config import GateConfig
+
+    cfg = GateConfig(
+        alpha=0.01,
+        min_examples=30,
+        certificate="certs/helpfulness.json",
+        min_kappa=0.7,
+    )
+    settings = GateSettings.from_config(cfg)
+    assert settings.alpha == 0.01
+    assert settings.min_examples == 30
+    assert settings.require_certificate_path == Path("certs/helpfulness.json")
+    assert settings.min_kappa == 0.7
+
+    default = GateSettings.from_config(GateConfig())
+    assert default.require_certificate_path is None
+
+
+# ---------------------------------------------------------------------------
+# Family-wise error rate under the null (seed sweep)
+# ---------------------------------------------------------------------------
+
+
+async def test_seed_sweep_null_candidates_fwer_controlled() -> None:
+    """5 noisy null candidates over 10 seeds should almost never promote.
+
+    Per-example scores of each null candidate are the incumbent's (0.5)
+    plus per-seed N(0, 0.1) noise, so every true delta is zero.  With
+    alpha=0.05 and Holm correction we expect ~0-1 promotions across 10
+    seeds; the bound of 2 is deliberately loose to avoid flakiness while
+    still demonstrating family-wise error control.
+    """
+    import random as _random
+
+    dev = _examples(60)
+    val = _examples(50, offset=1000)
+    promotions = 0
+    for seed in range(10):
+        rng = _random.Random(seed)
+        # noise[k][idx] — per-candidate, per-example noise around 0.5.
+        noise = [
+            [rng.gauss(0.0, 0.1) for _ in range(1100)] for _ in range(5)
+        ]
+
+        def metric(example: Example, prediction: Prediction) -> MetricResult:
+            answer = prediction.outputs.get("answer", "")
+            idx = int(example.inputs["question"])
+            if answer.startswith("fwer"):
+                k = int(answer[4])
+                return MetricResult(score=0.5 + noise[k][idx])  # noqa: B023
+            return MetricResult(score=0.5)
+
+        report = await run_gate(
+            program=_program(),
+            incumbent=_cand("base"),
+            candidates=[_cand(f"fwer{k}") for k in range(5)],
+            dev=dev,
+            val=val,
+            harness=_harness(),
+            metric=metric,
+            settings=_settings(),
+        )
+        if report.verdict == "promote":
+            promotions += 1
+    assert promotions <= 2, f"FWER not controlled: {promotions}/10 promotions"
+
+
 # ---------------------------------------------------------------------------
 # Serialisation
 # ---------------------------------------------------------------------------

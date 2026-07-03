@@ -40,6 +40,10 @@ class BudgetConfig(BaseModel):
 class GateConfig(BaseModel):
     alpha: float = 0.05
     min_examples: int = 50
+    #: Path to a judge calibration certificate JSON; empty = not required.
+    certificate: str = ""
+    #: Minimum kappa the certificate must attest when one is required.
+    min_kappa: float = 0.6
 
 
 class RegistryConfig(BaseModel):
