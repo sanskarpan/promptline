@@ -135,7 +135,7 @@ def test_optimize_bootstrap_exit_0(tmp_path: Path) -> None:
     data_path = tmp_path / "data.jsonl"
     fake_path = tmp_path / "fake_script.json"
 
-    _write_config(cfg_path)
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
     _write_jsonl(data_path, _make_examples(3))
     _write_fake_script(fake_path, _make_fake_responses(3))
 
@@ -166,7 +166,7 @@ def test_optimize_opro_exit_0(tmp_path: Path) -> None:
     data_path = tmp_path / "data.jsonl"
     fake_path = tmp_path / "fake_script.json"
 
-    _write_config(cfg_path)
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
     _write_jsonl(data_path, _make_examples(3))
 
     # OPRO needs task responses for seed eval + proposer responses for steps.
@@ -209,7 +209,7 @@ def test_optimize_bootstrap_rs_budget_zero_exits_cleanly(tmp_path: Path) -> None
     data_path = tmp_path / "data.jsonl"
     fake_path = tmp_path / "fake_script.json"
 
-    _write_config(cfg_path)
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
     _write_jsonl(data_path, _make_examples(3))
     _write_fake_script(fake_path, _make_fake_responses(3))
 
@@ -538,7 +538,7 @@ def test_optimize_resume_rejected_for_non_gepa(tmp_path: Path) -> None:
     data_path = tmp_path / "data.jsonl"
     fake_path = tmp_path / "fake_script.json"
 
-    _write_config(cfg_path)
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
     _write_jsonl(data_path, _make_examples(3))
     _write_fake_script(fake_path, _make_fake_responses(3))
 
