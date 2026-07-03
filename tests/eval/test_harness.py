@@ -4,11 +4,12 @@ import asyncio
 
 import pytest
 
-from promptline.core.llm import FakeLLMClient
+from promptline.core.llm import FakeLLMClient, LLMError, LLMResponse
 from promptline.core.program import ModelConfig, Module, PromptProgram
 from promptline.core.types import Candidate, Example, Field, ModuleState, Signature
 from promptline.eval.harness import (
     Budget,
+    BudgetExhausted,
     EvalHarness,
     EvalReport,
     ExampleResult,
@@ -61,6 +62,35 @@ def _fixed_metric(score: float):
     def metric(example: Example, prediction) -> MetricResult:
         return MetricResult(score=score, feedback="ok")
     return metric
+
+
+# ---------------------------------------------------------------------------
+# Test-only LLM client helpers
+# ---------------------------------------------------------------------------
+
+
+class _CostlyFakeLLMClient:
+    """Always returns cost_usd=cost_per_call so cost-budget tests work."""
+
+    def __init__(self, cost_per_call: float) -> None:
+        self._cost = cost_per_call
+
+    async def complete(self, call: object) -> LLMResponse:
+        return LLMResponse(text="[[answer]]: ok", cost_usd=self._cost)
+
+
+class _FailOnNthCallClient:
+    """Raises LLMError on the Nth complete() call; succeeds otherwise."""
+
+    def __init__(self, fail_on_call: int) -> None:
+        self._fail_on = fail_on_call
+        self._count = 0
+
+    async def complete(self, call: object) -> LLMResponse:
+        self._count += 1
+        if self._count == self._fail_on:
+            raise LLMError(f"forced failure on call {self._count}")
+        return LLMResponse(text="[[answer]]: ok")
 
 
 # ---------------------------------------------------------------------------
@@ -319,3 +349,107 @@ async def test_results_ordered_by_example_idx() -> None:
     idxs = [r.example_idx for r in report.per_example]
     assert idxs == sorted(idxs)
     assert idxs == list(range(5))
+
+
+# ---------------------------------------------------------------------------
+# Finding 1: cost budget wall (TDD — these tests drive the fix)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cost_budget_wall_truncates() -> None:
+    """max_cost_usd=$3 with 20 examples costing $1 each must truncate well before 20."""
+    budget = Budget(max_cost_usd=3.0)
+    concurrency = 2
+    cost_per_example = 1.0
+
+    client = _CostlyFakeLLMClient(cost_per_call=cost_per_example)
+    harness = EvalHarness(client, _cfg(), concurrency=concurrency)
+    report = await harness.evaluate(
+        _program(), _candidate(), _examples(20), _fixed_metric(1.0), budget=budget
+    )
+
+    assert report.truncated is True
+    assert report.n < 20
+    # cost_used must stay within the cap + at most one in-flight cost per slot
+    assert budget.cost_used < budget.max_cost_usd + concurrency * cost_per_example
+
+
+# ---------------------------------------------------------------------------
+# Finding 2: crashed example isolation (TDD)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_crashed_example_does_not_kill_eval() -> None:
+    """An LLMError from program.run on one example is isolated; others still score."""
+    # With concurrency=1 (sequential) the 5th LLM call (example index 4) raises.
+    client = _FailOnNthCallClient(fail_on_call=5)
+    harness = EvalHarness(client, _cfg(), concurrency=1)
+    report = await harness.evaluate(
+        _program(), _candidate(), _examples(10), _fixed_metric(1.0)
+    )
+
+    assert report.n == 10
+    failed = [r for r in report.per_example if r.failed]
+    assert len(failed) == 1
+    assert "error:" in failed[0].feedback
+    # All other results should be scored normally.
+    assert sum(1 for r in report.per_example if not r.failed) == 9
+
+
+# ---------------------------------------------------------------------------
+# Finding 4 (minor): concurrent rollout wall
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_concurrent_rollout_wall() -> None:
+    """concurrency=4, max_rollouts=5, 20 examples → exactly 5 results."""
+    fake = FakeLLMClient(script=["[[answer]]: ok"] * 20)
+    budget = Budget(max_rollouts=5)
+    harness = EvalHarness(fake, _cfg(), concurrency=4)
+    report = await harness.evaluate(
+        _program(), _candidate(), _examples(20), _fixed_metric(1.0), budget=budget
+    )
+    assert report.n == 5
+    assert report.truncated is True
+
+
+# ---------------------------------------------------------------------------
+# Finding 3: Budget.try_reserve / Budget.add_cost API (TDD)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_budget_try_reserve_succeeds_when_not_exhausted() -> None:
+    b = Budget(max_rollouts=5)
+    result = await b.try_reserve(rollouts=1)
+    assert result is True
+    assert b.rollouts_used == 1
+
+
+@pytest.mark.asyncio
+async def test_budget_try_reserve_fails_when_exhausted() -> None:
+    b = Budget(max_rollouts=2)
+    await b.try_reserve(rollouts=1)
+    await b.try_reserve(rollouts=1)
+    # now exhausted
+    result = await b.try_reserve(rollouts=1)
+    assert result is False
+    assert b.rollouts_used == 2  # not incremented
+
+
+def test_budget_add_cost() -> None:
+    b = Budget(max_cost_usd=5.0)
+    b.add_cost(2.5)
+    assert b.cost_used == pytest.approx(2.5)
+    assert not b.exhausted
+    b.add_cost(2.5)
+    assert b.exhausted
+
+
+def test_budget_exhausted_exported() -> None:
+    """BudgetExhausted must be importable from promptline.eval.harness."""
+    exc = BudgetExhausted("over budget")
+    assert isinstance(exc, RuntimeError)

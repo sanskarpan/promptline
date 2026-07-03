@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -167,9 +168,15 @@ class RunRecorder:
     # ------------------------------------------------------------------
 
     def save_checkpoint(self, state: dict) -> None:
-        """Atomically write *state* to ``checkpoint.json``."""
+        """Atomically write *state* to ``checkpoint.json``.
+
+        Writes to a sibling ``.tmp`` file first, then uses :func:`os.replace`
+        so a concurrent reader never sees a partially-written file.
+        """
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        self._checkpoint_path.write_text(json.dumps(state))
+        tmp_path = self._checkpoint_path.with_suffix(".tmp")
+        tmp_path.write_text(json.dumps(state))
+        os.replace(tmp_path, self._checkpoint_path)
 
     def load_checkpoint(self) -> dict:
         """Load the last saved checkpoint, or return an empty dict."""

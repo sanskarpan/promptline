@@ -3,16 +3,12 @@ from __future__ import annotations
 import asyncio
 import inspect
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
 from promptline.core.llm import LLMClient
 from promptline.core.program import ModelConfig, Prediction, PromptProgram
 from promptline.core.types import Candidate, Example
-
-if TYPE_CHECKING:
-    pass
 
 # ---------------------------------------------------------------------------
 # Metric types
@@ -33,6 +29,21 @@ class MetricResult(BaseModel):
 Metric = Callable[[Example, Prediction], "Awaitable[MetricResult] | MetricResult"]
 
 # ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+
+class BudgetExhausted(RuntimeError):
+    """Raised by optimizers that want to signal budget exhaustion explicitly.
+
+    :class:`EvalHarness.evaluate` does *not* raise this exception itself; it
+    truncates the result set and sets ``EvalReport.truncated = True``.
+    Optimizers may raise :class:`BudgetExhausted` to break out of their own
+    search loops once the budget is spent.
+    """
+
+
+# ---------------------------------------------------------------------------
 # Budget
 # ---------------------------------------------------------------------------
 
@@ -41,8 +52,9 @@ class Budget:
     """Mutable rollout/cost budget tracker.
 
     All attribute access is safe within a single asyncio event loop.
-    The :class:`EvalHarness` guards modifications with an ``asyncio.Lock``
-    to prevent concurrent over-runs.
+    :meth:`try_reserve` uses an internal :class:`asyncio.Lock` to provide
+    an atomic check-and-reserve so concurrent coroutines never over-run the
+    cap.
     """
 
     def __init__(
@@ -54,10 +66,29 @@ class Budget:
         self.max_cost_usd = max_cost_usd
         self.rollouts_used: int = 0
         self.cost_used: float = 0.0
+        self._lock: asyncio.Lock = asyncio.Lock()
 
     def charge(self, rollouts: int = 1, cost: float = 0.0) -> None:
         """Increment consumed rollouts and cost."""
         self.rollouts_used += rollouts
+        self.cost_used += cost
+
+    async def try_reserve(self, rollouts: int = 1) -> bool:
+        """Atomically check budget and reserve *rollouts* if not exhausted.
+
+        Returns ``True`` when the reservation succeeded, ``False`` when the
+        budget was already exhausted.  The internal :class:`asyncio.Lock`
+        serialises the check-and-reserve so concurrent coroutines cannot both
+        observe a non-exhausted budget and double-count.
+        """
+        async with self._lock:
+            if self.exhausted:
+                return False
+            self.rollouts_used += rollouts
+            return True
+
+    def add_cost(self, cost: float) -> None:
+        """Charge *cost* USD against the budget."""
         self.cost_used += cost
 
     @property
@@ -156,11 +187,19 @@ class EvalHarness:
 
         Examples are processed concurrently (up to ``self.concurrency`` at once).
         If *budget* becomes exhausted before all examples are processed, the
-        remaining examples are skipped and ``report.truncated`` is set to ``True``.
-        Results are always ordered by example index regardless of completion order.
+        remaining examples are skipped and ``report.truncated`` is set to
+        ``True``.  Results are always ordered by example index regardless of
+        completion order.
+
+        Exceptions raised by ``program.run`` (e.g. :class:`LLMError` after
+        retries) are caught per-example and recorded as
+        ``ExampleResult(score=0.0, failed=True)`` so a single bad example
+        cannot abort the whole evaluation.
+
+        :class:`BudgetExhausted` is *not* raised here; use that exception in
+        optimizer loops that want an early exit on budget exhaustion.
         """
         semaphore = asyncio.Semaphore(self.concurrency)
-        budget_lock = asyncio.Lock()
         truncated = False
         # Pre-allocated slots so we can fill in by index for deterministic ordering.
         results: list[ExampleResult | None] = [None] * len(examples)
@@ -168,20 +207,31 @@ class EvalHarness:
         async def run_one(idx: int, example: Example) -> None:
             nonlocal truncated
 
-            # Atomically check and pre-reserve a rollout slot so that we
-            # never exceed max_rollouts even with high concurrency.
-            if budget is not None:
-                async with budget_lock:
-                    if budget.exhausted:
+            async with semaphore:
+                # Atomically check and pre-reserve a rollout slot INSIDE the
+                # semaphore so that cost and rollout counts accumulated by
+                # earlier tasks are visible before the next task starts.
+                if budget is not None:
+                    reserved = await budget.try_reserve(rollouts=1)
+                    if not reserved:
                         truncated = True
                         return
-                    # Pre-reserve the rollout count; cost is added after run.
-                    budget.rollouts_used += 1
 
-            async with semaphore:
-                prediction: Prediction = await program.run(
-                    example, candidate, self.client, self.cfg
-                )
+                try:
+                    prediction: Prediction = await program.run(
+                        example, candidate, self.client, self.cfg
+                    )
+                except Exception as exc:
+                    # Isolate the failure: record a zero-score result and
+                    # continue with the remaining examples.
+                    results[idx] = ExampleResult(
+                        example_idx=idx,
+                        score=0.0,
+                        feedback=f"error: {exc}",
+                        cost_usd=0.0,
+                        failed=True,
+                    )
+                    return
 
                 if prediction.failed:
                     score: float = 0.0
@@ -193,10 +243,10 @@ class EvalHarness:
                     score = raw.score
                     feedback = raw.feedback
 
-                # Charge the cost portion of the budget (rollout already reserved).
+                # Charge the cost portion of the budget while still inside the
+                # semaphore so the next task observes the updated cost_used.
                 if budget is not None:
-                    async with budget_lock:
-                        budget.cost_used += prediction.cost_usd
+                    budget.add_cost(prediction.cost_usd)
 
                 results[idx] = ExampleResult(
                     example_idx=idx,
