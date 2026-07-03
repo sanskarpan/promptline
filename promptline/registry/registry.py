@@ -60,6 +60,7 @@ class PromptRegistry:
     def __init__(self, path: Path) -> None:
         path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
+        self.root = path
         self._path = path / "registry.db"
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
@@ -148,6 +149,23 @@ class PromptRegistry:
         if row is None:
             return None
         return row[0], Candidate.model_validate_json(row[1])
+
+    def get_active_info(self, program: str) -> dict | None:
+        """Active pointer details: prompt_id, activated_at and the candidate."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT a.prompt_id, a.activated_at, p.candidate_json "
+                "FROM active a JOIN prompts p ON p.id = a.prompt_id "
+                "WHERE a.program = ?",
+                (program,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "prompt_id": row[0],
+            "activated_at": row[1],
+            "candidate": Candidate.model_validate_json(row[2]),
+        }
 
     def activate(
         self, program: str, prompt_id: str, gate_report_json: str = "{}"
