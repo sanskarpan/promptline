@@ -37,5 +37,8 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[project.scripts]
+promptline = "promptline.cli.main:app"
+
 [tool.hatch.build.targets.wheel]
 packages = ["promptline"]
