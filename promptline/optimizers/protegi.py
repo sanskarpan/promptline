@@ -46,7 +46,13 @@ def _parse_fenced(text: str) -> str:
 
 
 def _format_failures(batch: list[Example], report: EvalReport) -> str:
-    """Render up to :data:`_MAX_FAILURES` failing examples for the gradient prompt."""
+    """Render up to :data:`_MAX_FAILURES` failing examples for the gradient prompt.
+
+    Coupling note: ``res.example_idx`` is a positional index into *batch* (the
+    argument passed to ``harness.evaluate``), **not** into the global trainset.
+    This is why we index ``batch[res.example_idx]`` — the harness populates
+    ``example_idx`` from the local enumeration of *examples* it receives.
+    """
     lines: list[str] = []
     shown = 0
     for res in report.per_example:
@@ -376,10 +382,58 @@ class ProTeGi(Optimizer):
             beam = sorted(survivors, key=_acc_mean, reverse=True)[: self.beam_width]
 
         # ----------------------------------------------------------------
-        # Final scores: mean racing score, falling back to minibatch score.
+        # Final full-eval: score each beam candidate on the full trainset.
+        # Budget is respected — if exhausted before a candidate's turn,
+        # that candidate keeps its racing mean as fallback (truncated=True).
         # ----------------------------------------------------------------
-        all_scores = {c.id: _acc_mean(c) for c in all_candidates}
+        full_eval_scores: dict[str, float] = {}
+        for cand in beam:
+            if budget.exhausted:
+                # Cannot evaluate this candidate; racing mean is the fallback.
+                _emit(
+                    RunEvent.now(
+                        "full_eval",
+                        candidate_id=cand.id,
+                        mean_score=_acc_mean(cand),
+                        n=0,
+                        truncated=True,
+                    )
+                )
+                continue
+            report = await harness.evaluate(program, cand, trainset, metric, budget)
+            full_eval_scores[cand.id] = report.mean_score
+            _emit(
+                RunEvent.now(
+                    "full_eval",
+                    candidate_id=cand.id,
+                    mean_score=report.mean_score,
+                    n=report.n,
+                    truncated=report.truncated,
+                )
+            )
+
+        def _final_score(cand: Candidate) -> float:
+            """Full-eval mean when available; fall back to racing/minibatch mean."""
+            if cand.id in full_eval_scores:
+                return full_eval_scores[cand.id]
+            return _acc_mean(cand)
+
+        # Re-rank beam by full-eval scores and pick the best.
+        beam = sorted(beam, key=_final_score, reverse=True)
         best = beam[0] if beam else seed
+
+        # ----------------------------------------------------------------
+        # Final scores: full-eval mean > racing mean > minibatch mean.
+        # Candidates that were never evaluated at all are omitted from
+        # scores entirely (they remain in result.candidates).
+        # ----------------------------------------------------------------
+        all_scores: dict[str, float] = {}
+        for c in all_candidates:
+            if c.id in full_eval_scores:
+                all_scores[c.id] = full_eval_scores[c.id]
+            elif c.id in racing_scores or c.id in minibatch_scores:
+                all_scores[c.id] = _acc_mean(c)
+            # else: never evaluated → omit from scores
 
         _emit(
             RunEvent.now(

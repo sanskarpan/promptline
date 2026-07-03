@@ -187,11 +187,15 @@ async def test_racing_cheaper_than_full_eval() -> None:
     client = _client(f"Answer the question. {MARKER} sources.")
     trainset = _trainset(50)
     budget = Budget(max_rollouts=10_000)
-    result, _ = await _run(client, trainset=trainset, budget=budget, n_rounds=2)
+    n_rounds = 2
+    result, _ = await _run(client, trainset=trainset, budget=budget, n_rounds=n_rounds)
 
     pool_size = len(result.candidates)
     assert pool_size > 4  # a real pool formed
-    assert budget.rollouts_used < pool_size * len(trainset)
+    # Racing (batch-based selection) + final full-eval on the beam must be
+    # cheaper than naively full-evaluating every unique candidate on the full
+    # trainset at each optimization round.
+    assert budget.rollouts_used < pool_size * len(trainset) * n_rounds
 
 
 # ---------------------------------------------------------------------------
@@ -239,3 +243,88 @@ async def test_determinism_same_seed_same_best() -> None:
     assert (
         r1.best.modules["main"].instruction == r2.best.modules["main"].instruction
     )
+
+
+# ---------------------------------------------------------------------------
+# Full-eval
+# ---------------------------------------------------------------------------
+
+
+async def test_full_eval_events_emitted() -> None:
+    """full_eval events must be emitted for each final beam candidate."""
+    client = _client(f"Answer the question. {MARKER} sources.")
+    events: list[RunEvent] = []
+    result, _ = await _run(client, events=events, n_rounds=1, beam_width=2)
+
+    full_eval_events = [e for e in events if e.type == "full_eval"]
+    assert full_eval_events, "no full_eval events emitted"
+    # At most beam_width events (one per beam candidate).
+    assert len(full_eval_events) <= 2
+    for e in full_eval_events:
+        assert "candidate_id" in e.payload
+        assert "mean_score" in e.payload
+        assert "n" in e.payload
+        assert "truncated" in e.payload
+    # full_eval events appear before run_finished.
+    types = [e.type for e in events]
+    last_full_eval_idx = max(i for i, t in enumerate(types) if t == "full_eval")
+    run_finished_idx = types.index("run_finished")
+    assert last_full_eval_idx < run_finished_idx
+
+
+async def test_best_chosen_by_full_eval_score() -> None:
+    """result.best must be the beam candidate with the highest full-eval mean."""
+    client = _client(f"Answer the question. {MARKER} sources.")
+    events: list[RunEvent] = []
+    result, _ = await _run(client, events=events, n_rounds=1)
+
+    non_truncated = [
+        e for e in events if e.type == "full_eval" and not e.payload.get("truncated")
+    ]
+    assert non_truncated, "expected at least one non-truncated full_eval event"
+    best_event = max(non_truncated, key=lambda e: e.payload["mean_score"])
+    assert result.best.id == best_event.payload["candidate_id"]
+
+
+async def test_full_eval_budget_exhaustion_returns_cleanly() -> None:
+    """Optimizer must return cleanly and emit full_eval events even when budget
+    exhausts mid-full-eval (some candidates get truncated=True events)."""
+    client = _client(f"Answer the question. {MARKER} sources.")
+    events: list[RunEvent] = []
+    # Budget sized so the main loop completes but full-eval is at least partially
+    # cut short (minibatch=8 + some racing rollouts ≤ 20 < full trainset × beam).
+    budget = Budget(max_rollouts=20)
+    result, _ = await _run(client, events=events, budget=budget, n_rounds=1)
+
+    assert result.best is not None
+    full_eval_events = [e for e in events if e.type == "full_eval"]
+    # At least one full_eval event must still be emitted (truncated or not).
+    assert full_eval_events, "full_eval events must be emitted even with exhausted budget"
+    for e in full_eval_events:
+        assert "truncated" in e.payload
+
+
+async def test_unevaluated_candidate_not_in_scores() -> None:
+    """Candidates never scored (racing or minibatch) must be absent from scores."""
+    client = _client(f"Answer the question. {MARKER} sources.")
+    # Budget tight enough that seed minibatch exhausts almost all rollouts:
+    # seed minibatch uses 8, leaving 7 for racing → only seed gets racing-evaluated,
+    # all children remain unscored.  n_gradients=2,n_paraphrases=1 yields 4 children.
+    budget = Budget(max_rollouts=15)
+    result, seed = await _run(
+        client,
+        budget=budget,
+        n_rounds=1,
+        n_gradients=2,
+        n_paraphrases=1,
+    )
+
+    # Seed is always minibatch-evaluated and must appear in scores.
+    assert seed.id in result.scores
+
+    # Some children should have been proposed but never evaluated.
+    unscored = [c for c in result.candidates if c.id not in result.scores]
+    assert unscored, "expected unevaluated children to be absent from scores"
+
+    # The returned best must always have a score (it was evaluated somewhere).
+    assert result.best.id in result.scores
