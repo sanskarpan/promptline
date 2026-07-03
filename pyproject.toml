@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "promptline"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx",
+  "pydantic>=2",
+  "typer",
+  "rich",
+  "textual",
+  "fastapi",
+  "sse-starlette",
+  "uvicorn",
+  "optuna",
+  "numpy",
+  "scipy",
+  "pyyaml",
+]
+
+[project.optional-dependencies]
+data = ["datasets"]
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "ruff",
+  "pyright",
+  "respx",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["promptline"]

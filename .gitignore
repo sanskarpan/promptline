@@ -1,0 +1,12 @@
+.venv/
+runs/
+.promptline/
+node_modules/
+web/dist/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.egg-info/
+dist/
+build/
+.DS_Store
