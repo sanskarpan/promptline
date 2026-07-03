@@ -20,7 +20,10 @@ from promptline.core.config import PromptlineConfig, default_config_yaml, load_c
 from promptline.core.llm import FakeLLMClient
 from promptline.core.program import ModelConfig, PromptProgram
 from promptline.core.types import Candidate, Example, ModuleState
+from promptline.data.dataset import Dataset
 from promptline.eval.harness import Budget, EvalHarness, MetricResult
+from promptline.judge.calibrator import Calibrator
+from promptline.judge.judge import PointwiseJudge, RubricCriterion
 
 console = Console()
 
@@ -290,3 +293,134 @@ def optimize(
     )
     console.print(f"\n[bold]Rollouts used:[/bold] {run_budget.rollouts_used}")
     console.print(f"[bold]Events emitted:[/bold] {result.events_count}")
+
+
+# ---------------------------------------------------------------------------
+# calibrate
+# ---------------------------------------------------------------------------
+
+#: Default rubric descriptions per criterion name.
+DEFAULT_RUBRICS: dict[str, str] = {
+    "helpfulness": (
+        "How well the response addresses the user's request and provides "
+        "actionable, relevant information."
+    ),
+    "correctness": (
+        "Whether the response is factually accurate and free of errors or "
+        "unsupported claims."
+    ),
+    "coherence": (
+        "Whether the response is well-structured, consistent, and easy to follow."
+    ),
+    "complexity": (
+        "The intellectual depth required to write the response "
+        "(domain expertise vs. basic language competency)."
+    ),
+    "verbosity": (
+        "Whether the amount of detail is appropriate for the request — "
+        "neither too terse nor padded."
+    ),
+}
+
+
+def _load_gold_dataset(gold: str, criterion: str, n: int | None) -> Dataset:
+    """Load the gold dataset from a JSONL path or the HelpSteer2 HF loader."""
+    if gold == "helpsteer2":
+        from promptline.data.loaders import load_helpsteer2
+
+        attribute = criterion if criterion in DEFAULT_RUBRICS else "helpfulness"
+        return load_helpsteer2(attribute=attribute, limit=n)
+    gold_path = Path(gold)
+    if not gold_path.exists():
+        console.print(f"[red]Gold dataset not found:[/red] {gold_path}")
+        raise typer.Exit(1)
+    dataset = Dataset.from_jsonl(gold_path)
+    if n is not None:
+        dataset = Dataset(dataset.records[:n])
+    return dataset
+
+
+@app.command()
+def calibrate(
+    gold: str = typer.Option(
+        ...,
+        "--gold",
+        help="Path to a gold JSONL dataset, or the literal 'helpsteer2'.",
+    ),
+    criterion: str = typer.Option(
+        "helpfulness",
+        "--criterion",
+        help="Rubric criterion to calibrate the judge on.",
+    ),
+    n: int = typer.Option(200, "--n", help="Max gold records to use."),
+    threshold: float = typer.Option(
+        0.6,
+        "--threshold",
+        help="Minimum quadratic-weighted kappa required to pass.",
+    ),
+    config: str = typer.Option(
+        "promptline.yaml",
+        "--config",
+        help="Path to promptline.yaml.",
+    ),
+) -> None:
+    """Calibrate the LLM judge against gold human labels and save a certificate."""
+
+    # ---- Config ------------------------------------------------------------
+    cfg_path = Path(config)
+    cfg = load_config(cfg_path) if cfg_path.exists() else PromptlineConfig()
+
+    # ---- Gold dataset --------------------------------------------------------
+    dataset = _load_gold_dataset(gold, criterion, n)
+    if not len(dataset):
+        console.print("[red]Gold dataset is empty.[/red]")
+        raise typer.Exit(1)
+
+    # ---- Judge ---------------------------------------------------------------
+    judge_model = cfg.models.judge or cfg.models.task or "openai/gpt-4o-mini"
+    rubric = RubricCriterion(
+        name=criterion,
+        description=DEFAULT_RUBRICS.get(
+            criterion, f"Rate the overall {criterion} of the response."
+        ),
+    )
+    judge = PointwiseJudge(criterion=rubric, judge_model=judge_model)
+
+    # ---- Calibrate -------------------------------------------------------------
+    client = _build_client(cfg)
+    calibrator = Calibrator(judge, dataset, client, threshold_kappa=threshold)
+
+    console.print(
+        f"\nCalibrating judge [bold]{judge_model}[/bold] on criterion "
+        f"[bold]{criterion}[/bold] ({len(dataset)} gold records, "
+        f"{len(calibrator.holdout)} holdout) …"
+    )
+    cert = asyncio.run(calibrator.calibrate())
+
+    # ---- Report -----------------------------------------------------------------
+    table = Table(title="Calibration Certificate")
+    table.add_column("Field")
+    table.add_column("Value", justify="right")
+    table.add_row("criterion", cert.criterion)
+    table.add_row("kappa (quadratic)", f"{cert.kappa:.3f}")
+    table.add_row("spearman", f"{cert.spearman:.3f}")
+    table.add_row("n_holdout", str(cert.n_holdout))
+    table.add_row("threshold", f"{cert.threshold:.2f}")
+    table.add_row("binning", cert.binning)
+    table.add_row(
+        "passed",
+        "[green]yes[/green]" if cert.passed else "[red]no[/red]",
+    )
+    console.print(table)
+
+    # ---- Save ---------------------------------------------------------------------
+    cert_path = Path(cfg.registry.path) / "certificates" / f"{criterion}.json"
+    cert.save(cert_path)
+    console.print(f"Certificate saved to [bold]{cert_path}[/bold]")
+
+    if not cert.passed:
+        console.print(
+            f"[red]Calibration failed:[/red] kappa {cert.kappa:.3f} "
+            f"< threshold {cert.threshold:.2f}"
+        )
+        raise typer.Exit(1)

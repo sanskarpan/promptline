@@ -275,3 +275,160 @@ def test_load_examples_jsonl(tmp_path: Path) -> None:
     assert examples[0].inputs == {"question": "q1"}
     assert examples[0].labels == {"answer": "a1"}
     assert examples[1].inputs == {"question": "q2"}
+
+
+# ---------------------------------------------------------------------------
+# calibrate
+# ---------------------------------------------------------------------------
+
+
+def _write_gold_jsonl(path: Path, n: int = 30) -> None:
+    """Gold records with human labels cycling 1..5."""
+    rows = []
+    for i in range(n):
+        label = i % 5 + 1
+        rows.append(
+            {
+                "conversation": [{"role": "user", "content": f"question {i}"}],
+                "reference_output": f"answer {i}",
+                "human_label": float(label),
+            }
+        )
+    _write_jsonl(path, rows)
+
+
+def _holdout_records(gold_path: Path):
+    """Replicate the Calibrator's default split to learn the holdout order."""
+    from promptline.data.dataset import Dataset
+
+    dataset = Dataset.from_jsonl(gold_path)
+    return dataset.split({"dev": 0.5, "holdout": 0.5}, seed=0)["holdout"]
+
+
+def test_calibrate_perfect_agreement_exit_0_and_saves_cert(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "promptline.yaml"
+    gold_path = tmp_path / "gold.jsonl"
+    fake_path = tmp_path / "fake_script.json"
+
+    _write_config(cfg_path)
+    _write_gold_jsonl(gold_path)
+
+    holdout = _holdout_records(gold_path)
+    labels = sorted({int(r.human_label) for r in holdout})
+    assert labels == [1, 2, 3, 4, 5], "holdout must span the judge scale"
+    # Judge echoes each holdout human label, in holdout order.
+    _write_fake_script(
+        fake_path,
+        [
+            f"[[reasoning]]: ok\n[[score]]: {int(r.human_label)}"
+            for r in holdout
+        ],
+    )
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    with _in_tmpdir(tmp_path):
+        result = runner.invoke(
+            app,
+            [
+                "calibrate",
+                "--gold", str(gold_path),
+                "--criterion", "helpfulness",
+                "--threshold", "0.6",
+                "--config", str(cfg_path),
+            ],
+            env=env,
+            catch_exceptions=False,
+        )
+    assert result.exit_code == 0, result.output
+
+    cert_path = tmp_path / ".promptline_test" / "certificates" / "helpfulness.json"
+    assert cert_path.exists()
+    from promptline.judge.calibrator import CalibrationCertificate
+
+    cert = CalibrationCertificate.load(cert_path)
+    assert cert.passed is True
+    assert cert.kappa == 1.0
+
+
+def test_calibrate_disagreement_exit_1(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "promptline.yaml"
+    gold_path = tmp_path / "gold.jsonl"
+    fake_path = tmp_path / "fake_script.json"
+
+    _write_config(cfg_path)
+    _write_gold_jsonl(gold_path)
+    # Judge always answers 1 while human labels vary -> kappa ~ 0.
+    _write_fake_script(fake_path, ["[[reasoning]]: r\n[[score]]: 1"])
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    with _in_tmpdir(tmp_path):
+        result = runner.invoke(
+            app,
+            [
+                "calibrate",
+                "--gold", str(gold_path),
+                "--criterion", "helpfulness",
+                "--config", str(cfg_path),
+            ],
+            env=env,
+        )
+    assert result.exit_code == 1, result.output
+    # Certificate is still saved for inspection, marked failed.
+    cert_path = tmp_path / ".promptline_test" / "certificates" / "helpfulness.json"
+    assert cert_path.exists()
+
+
+def test_calibrate_respects_n_limit(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "promptline.yaml"
+    gold_path = tmp_path / "gold.jsonl"
+    fake_path = tmp_path / "fake_script.json"
+
+    _write_config(cfg_path)
+    _write_gold_jsonl(gold_path, n=30)
+
+    from promptline.data.dataset import Dataset
+
+    limited = Dataset(Dataset.from_jsonl(gold_path).records[:10])
+    holdout = limited.split({"dev": 0.5, "holdout": 0.5}, seed=0)["holdout"]
+    _write_fake_script(
+        fake_path,
+        [
+            f"[[reasoning]]: ok\n[[score]]: {int(r.human_label)}"
+            for r in holdout
+        ],
+    )
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    with _in_tmpdir(tmp_path):
+        result = runner.invoke(
+            app,
+            [
+                "calibrate",
+                "--gold", str(gold_path),
+                "--n", "10",
+                "--config", str(cfg_path),
+            ],
+            env=env,
+            catch_exceptions=False,
+        )
+    # n_holdout in the saved certificate must reflect the limited dataset.
+    from promptline.judge.calibrator import CalibrationCertificate
+
+    cert_path = tmp_path / ".promptline_test" / "certificates" / "helpfulness.json"
+    assert cert_path.exists(), result.output
+    cert = CalibrationCertificate.load(cert_path)
+    assert cert.n_holdout == len(holdout)
+
+
+def test_calibrate_missing_gold_exits_nonzero(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "promptline.yaml"
+    _write_config(cfg_path)
+    result = runner.invoke(
+        app,
+        [
+            "calibrate",
+            "--gold", str(tmp_path / "missing.jsonl"),
+            "--config", str(cfg_path),
+        ],
+    )
+    assert result.exit_code != 0
