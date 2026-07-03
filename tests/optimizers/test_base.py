@@ -5,13 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from promptline.core.llm import FakeLLMClient
-from promptline.core.program import ModelConfig, PromptProgram
-from promptline.core.types import Candidate, Example, ModuleState
-from promptline.eval.harness import Budget, EvalHarness, MetricResult
+from promptline.core.types import Candidate, ModuleState
 from promptline.optimizers.base import (
-    OptimizeResult,
     Optimizer,
+    OptimizeResult,
     RunEvent,
     RunRecorder,
 )
@@ -83,6 +80,7 @@ def test_optimizer_abc_cannot_instantiate() -> None:
 
 def test_optimizer_abc_requires_optimize_implementation() -> None:
     """A concrete subclass that doesn't implement optimize() must also fail."""
+
     class IncompleteOptimizer(Optimizer):
         name = "incomplete"
 
@@ -94,7 +92,9 @@ def test_optimizer_concrete_subclass_instantiates() -> None:
     class ConcreteOptimizer(Optimizer):
         name = "concrete"
 
-        async def optimize(self, program, seed, trainset, metric, budget, harness, emit=lambda e: None):
+        async def optimize(  # type: ignore[override]
+            self, program, seed, trainset, metric, budget, harness, emit=lambda e: None
+        ):
             return OptimizeResult(best=seed, candidates=[seed], scores={})
 
     opt = ConcreteOptimizer()

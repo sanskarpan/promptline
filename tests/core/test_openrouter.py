@@ -235,7 +235,11 @@ async def test_context_manager_closes_on_exit() -> None:
 async def test_malformed_json_body_raises_llm_error() -> None:
     with respx.mock:
         respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
-            return_value=httpx.Response(200, text="not json at all", headers={"content-type": "application/json"})
+            return_value=httpx.Response(
+                200,
+                text="not json at all",
+                headers={"content-type": "application/json"},
+            )
         )
         client = OpenRouterClient(api_key="test-key")
         with pytest.raises(LLMError, match="[Mm]alformed"):
