@@ -111,6 +111,9 @@ class BootstrapFewShot(Optimizer):
         Maximum number of demonstrations to attach per module.
     threshold:
         Minimum metric score (inclusive) for an example to qualify as a demo.
+        The default (0.7) suits continuous metrics like the LLM judge, which
+        produces scores in [0, 1]; binary exact-match scores (1.0/0.0) clear
+        it too.  Pass 1.0 to accept only perfect scores.
     rng_seed:
         Seed used to shuffle the training set before collection.
     """
@@ -120,7 +123,7 @@ class BootstrapFewShot(Optimizer):
     def __init__(
         self,
         max_demos: int = 4,
-        threshold: float = 1.0,
+        threshold: float = 0.7,
         rng_seed: int = 0,
     ) -> None:
         self.max_demos = max_demos
@@ -210,7 +213,9 @@ class BootstrapRandomSearch(Optimizer):
     subset_size:
         Number of demos per subset (may be smaller if pool is short).
     threshold:
-        Minimum score for an example to enter the demo pool.
+        Minimum score for an example to enter the demo pool.  The default
+        (0.7) suits continuous metrics like the LLM judge ([0, 1] scores);
+        binary 1.0/0.0 metrics clear it too.
     val_fraction:
         Fraction of the training set reserved for validation (seeded split).
     rng_seed:
@@ -223,7 +228,7 @@ class BootstrapRandomSearch(Optimizer):
         self,
         n_subsets: int = 8,
         subset_size: int = 4,
-        threshold: float = 1.0,
+        threshold: float = 0.7,
         val_fraction: float = 0.3,
         rng_seed: int = 0,
     ) -> None:

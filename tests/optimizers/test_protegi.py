@@ -328,3 +328,41 @@ async def test_unevaluated_candidate_not_in_scores() -> None:
 
     # The returned best must always have a score (it was evaluated somewhere).
     assert result.best.id in result.scores
+
+
+# ---------------------------------------------------------------------------
+# Continuous-metric failure threshold
+# ---------------------------------------------------------------------------
+
+
+def test_format_failures_uses_continuous_threshold() -> None:
+    """Scores below failure_threshold count as failures; >= do not."""
+    from promptline.core.types import Example
+    from promptline.eval.harness import EvalReport, ExampleResult
+    from promptline.optimizers.protegi import ProTeGi, _format_failures
+
+    batch = [
+        Example(inputs={"question": "q-low"}),
+        Example(inputs={"question": "q-high"}),
+    ]
+    report = EvalReport(
+        per_example=[
+            ExampleResult(
+                example_idx=0, score=0.65, feedback="meh", cost_usd=0.0,
+                failed=False,
+            ),
+            ExampleResult(
+                example_idx=1, score=0.75, feedback="good", cost_usd=0.0,
+                failed=False,
+            ),
+        ],
+    )
+
+    assert ProTeGi().failure_threshold == 0.7  # continuous-metric default
+    rendered = _format_failures(batch, report)  # default threshold 0.7
+    assert "q-low" in rendered
+    assert "q-high" not in rendered
+
+    # Overridable: a stricter cutoff flags both.
+    strict = _format_failures(batch, report, failure_threshold=1.0)
+    assert "q-low" in strict and "q-high" in strict

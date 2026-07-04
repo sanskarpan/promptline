@@ -45,8 +45,14 @@ def _parse_fenced(text: str) -> str:
     return text.strip()
 
 
-def _format_failures(batch: list[Example], report: EvalReport) -> str:
+def _format_failures(
+    batch: list[Example], report: EvalReport, failure_threshold: float = 0.7
+) -> str:
     """Render up to :data:`_MAX_FAILURES` failing examples for the gradient prompt.
+
+    An example counts as a failure when ``score < failure_threshold`` — the
+    default (0.7) suits continuous metrics like the LLM judge, which produces
+    scores in [0, 1]; binary 1.0/0.0 metrics behave as before.
 
     Coupling note: ``res.example_idx`` is a positional index into *batch* (the
     argument passed to ``harness.evaluate``), **not** into the global trainset.
@@ -56,7 +62,7 @@ def _format_failures(batch: list[Example], report: EvalReport) -> str:
     lines: list[str] = []
     shown = 0
     for res in report.per_example:
-        if res.score >= 1.0:
+        if res.score >= failure_threshold:
             continue
         example = batch[res.example_idx]
         inputs = "; ".join(f"{k}: {v}" for k, v in example.inputs.items())
@@ -122,6 +128,10 @@ class ProTeGi(Optimizer):
         Maximum successive-halving rounds when pruning the pool.
     racing_batch:
         Examples per racing batch (fresh, disjoint per racing round).
+    failure_threshold:
+        Examples scoring below this feed the textual-gradient critique.  The
+        default (0.7) suits continuous metrics like the LLM judge ([0, 1]
+        scores); binary 1.0/0.0 metrics behave as before.
     rng_seed:
         Seed for minibatch and racing-batch sampling.
 
@@ -142,6 +152,7 @@ class ProTeGi(Optimizer):
         minibatch_size: int = 8,
         racing_rounds: int = 3,
         racing_batch: int = 8,
+        failure_threshold: float = 0.7,
         rng_seed: int = 0,
     ) -> None:
         self.beam_width = beam_width
@@ -151,6 +162,7 @@ class ProTeGi(Optimizer):
         self.minibatch_size = minibatch_size
         self.racing_rounds = racing_rounds
         self.racing_batch = racing_batch
+        self.failure_threshold = failure_threshold
         self.rng_seed = rng_seed
 
     # ------------------------------------------------------------------
@@ -269,7 +281,7 @@ class ProTeGi(Optimizer):
                     )
                 )
 
-                failures = _format_failures(batch, report)
+                failures = _format_failures(batch, report, self.failure_threshold)
                 if not failures:
                     continue  # no failing examples: this parent emits no gradients
 

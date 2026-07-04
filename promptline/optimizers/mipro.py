@@ -142,7 +142,9 @@ class MIPRO(Optimizer):
         Every this many completed trials, full-evaluate the best
         not-yet-full-evaluated config on the whole trainset.
     threshold:
-        Minimum metric score for an example to enter the demo pool.
+        Minimum metric score for an example to enter the demo pool.  The
+        default (0.7) suits continuous metrics like the LLM judge ([0, 1]
+        scores); binary 1.0/0.0 metrics clear it too.
     rng_seed:
         Seed for all random operations and the TPE sampler.
     """
@@ -157,7 +159,7 @@ class MIPRO(Optimizer):
         n_trials: int = 30,
         minibatch_size: int = 16,
         full_eval_steps: int = 5,
-        threshold: float = 1.0,
+        threshold: float = 0.7,
         rng_seed: int = 0,
     ) -> None:
         self.n_instruction_candidates = n_instruction_candidates

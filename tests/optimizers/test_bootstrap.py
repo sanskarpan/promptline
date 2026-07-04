@@ -598,3 +598,61 @@ async def test_bootstrap_rs_real_discrimination() -> None:
         f"Best candidate must contain MARKER demo. "
         f"Demos: {[d.inputs for d in best_demos]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Continuous-metric thresholds (LLM judge produces scores in [0, 1])
+# ---------------------------------------------------------------------------
+
+
+def _continuous_metric(score: float):
+    def metric(example: Example, prediction) -> MetricResult:  # type: ignore[type-arg]
+        return MetricResult(score=score)
+
+    return metric
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_default_threshold_accepts_continuous_pass() -> None:
+    """Default threshold (0.7) must collect demos from a 0.8-scoring judge."""
+    program = _program()
+    seed = _seed(program)
+    harness = EvalHarness(client=_fake_client_single_answer(), cfg=_model_cfg())
+    examples = [
+        Example(inputs={"question": f"q{i}"}, labels={}) for i in range(4)
+    ]
+
+    opt = BootstrapFewShot(max_demos=4, rng_seed=0)  # default threshold
+    assert opt.threshold == 0.7
+    result = await opt.optimize(
+        program, seed, examples, _continuous_metric(0.8), Budget(max_rollouts=50),
+        harness,
+    )
+    demos = result.best.modules[program.modules[0].name].demos
+    assert len(demos) == 4
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_default_threshold_rejects_continuous_fail() -> None:
+    """A 0.6-scoring judge is below the default 0.7 cut — no demos."""
+    program = _program()
+    seed = _seed(program)
+    harness = EvalHarness(client=_fake_client_single_answer(), cfg=_model_cfg())
+    examples = [
+        Example(inputs={"question": f"q{i}"}, labels={}) for i in range(4)
+    ]
+
+    opt = BootstrapFewShot(max_demos=4, rng_seed=0)
+    result = await opt.optimize(
+        program, seed, examples, _continuous_metric(0.6), Budget(max_rollouts=50),
+        harness,
+    )
+    demos = result.best.modules[program.modules[0].name].demos
+    assert demos == []
+
+
+def test_bootstrap_rs_and_mipro_default_thresholds_continuous() -> None:
+    from promptline.optimizers.mipro import MIPRO
+
+    assert BootstrapRandomSearch().threshold == 0.7
+    assert MIPRO().threshold == 0.7
