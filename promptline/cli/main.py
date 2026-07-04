@@ -949,6 +949,37 @@ def build_app_from_config(config_path: str):
 
 
 @app.command()
+def tui(
+    run: str | None = typer.Option(
+        None, "--run", help="Run id to watch (reads <registry>/runs/<id>/events.jsonl)."
+    ),
+    attach: str | None = typer.Option(
+        None, "--attach", help="SSE URL to attach to (e.g. http://host/runs/<id>/events)."
+    ),
+    config: str = typer.Option(
+        "promptline.yaml", "--config", help="Path to promptline.yaml."
+    ),
+) -> None:
+    """Open the live TUI cockpit for an optimizer run."""
+    from promptline.tui.app import PromptlineTUI
+    from promptline.tui.events import RunEventFeed
+
+    if attach:
+        feed = RunEventFeed.from_url(attach)
+        run_id = attach.rstrip("/").split("/")[-2] if "/" in attach else attach
+    elif run:
+        cfg = _load_config_or_exit(config)
+        events_path = Path(cfg.registry.path) / "runs" / run / "events.jsonl"
+        feed = RunEventFeed.from_file(events_path, follow=True)
+        run_id = run
+    else:
+        console.print("[red]Pass --run <run_id> or --attach <url>.[/red]")
+        raise typer.Exit(1)
+
+    PromptlineTUI(feed=feed, run_id=run_id).run()
+
+
+@app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8000, "--port"),
