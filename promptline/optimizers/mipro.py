@@ -13,6 +13,7 @@ Three stages:
 """
 from __future__ import annotations
 
+import hashlib
 import random
 from collections.abc import Callable
 
@@ -269,9 +270,16 @@ class MIPRO(Optimizer):
                 proposed = parse_new_instruction(resp.text)
                 options.append(proposed)
                 batch_proposals.append(proposed)
+                # Derive a stable id from content so the TUI lineage tree can
+                # render MIPRO proposals.  SHA-256 of "module:instruction"
+                # gives a collision-free 12-hex-char id without any new deps.
+                proposal_id = hashlib.sha256(
+                    f"{module.name}:{proposed}".encode()
+                ).hexdigest()[:12]
                 emit(
                     RunEvent.now(
                         "candidate_proposed",
+                        candidate_id=proposal_id,
                         module=module.name,
                         tip=tip,
                         instruction=proposed,

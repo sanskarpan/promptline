@@ -91,7 +91,13 @@ class RunEventFeed:
                     lines = partial.split("\n")
                     partial = lines.pop()  # trailing incomplete line (if any)
                     for line in lines:
-                        event = _parse_line(line)
+                        try:
+                            event = _parse_line(line)
+                        except Exception:
+                            # Skip malformed / partially-flushed lines and keep
+                            # tailing — a transient write-flush artefact must not
+                            # permanently flip TUI status to FAILED.
+                            continue
                         if event is None:
                             continue
                         yield event

@@ -215,6 +215,44 @@ async def test_f_toggles_follow_and_q_quits() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Status-transition edge cases
+# ---------------------------------------------------------------------------
+
+
+async def test_feed_ends_without_run_finished_sets_failed() -> None:
+    """If the feed is exhausted while status == RUNNING, TUI must show FAILED."""
+    events = [
+        RunEvent.now("run_started", optimizer="gepa"),
+        RunEvent.now("candidate_proposed", candidate_id=CAND_A),
+        # No run_finished — simulates an optimizer crash / OOM-kill.
+    ]
+    app = PromptlineTUI(feed=RunEventFeed.from_events(events), run_id="testrun")
+    async with app.run_test() as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app.status == "FAILED"
+        assert "FAILED" in str(app.query_one("#header", Static).content)
+
+
+async def test_malformed_line_does_not_flip_failed(tmp_path: Path) -> None:
+    """A partially-flushed / corrupt JSONL line must be skipped, not crash the TUI."""
+    path = tmp_path / "events.jsonl"
+    events = _synthetic_events()
+    with path.open("w") as fh:
+        fh.write(events[0].model_dump_json() + "\n")  # run_started
+        fh.write("{broken json\n")                     # malformed line
+        for event in events[1:]:
+            fh.write(event.model_dump_json() + "\n")
+
+    feed = RunEventFeed.from_file(path, follow=False)
+    seen = [event async for event in feed]
+
+    # Malformed line skipped; all valid events present.
+    assert len(seen) == len(events)
+    assert seen[-1].type == "run_finished"
+
+
+# ---------------------------------------------------------------------------
 # Payload summary formatting
 # ---------------------------------------------------------------------------
 

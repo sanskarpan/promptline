@@ -219,10 +219,10 @@ class PromptlineTUI(App):
             async for event in self.feed:
                 await self._resume.wait()
                 self.handle_event(event)
-        except Exception:
+        except Exception as exc:
             self.status = "FAILED"
             self._refresh_header()
-            raise
+            self.notify(f"Feed error: {exc}", severity="error", timeout=0)
         if self.status == "RUNNING":
             # Feed ended without a run_finished event.
             self.status = "FAILED"
