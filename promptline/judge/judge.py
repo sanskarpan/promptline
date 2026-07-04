@@ -286,7 +286,11 @@ class PointwiseJudge:
 
 _VERDICT_RE = re.compile(r"\b(A|B|TIE)\b", re.IGNORECASE)
 
-_UNSWAP = {"A": "B", "B": "A", "TIE": "TIE"}
+Verdict = Literal["A", "B", "TIE"]
+
+_VERDICTS: dict[str, Verdict] = {"A": "A", "B": "B", "TIE": "TIE"}
+
+_UNSWAP: dict[Verdict, Verdict] = {"A": "B", "B": "A", "TIE": "TIE"}
 
 
 class PairwiseJudge:
@@ -308,10 +312,10 @@ class PairwiseJudge:
         )
 
     @staticmethod
-    def parse_verdict(text: str) -> str | None:
+    def parse_verdict(text: str) -> Verdict | None:
         """First standalone A/B/TIE token in *text*, case-insensitive."""
         match = _VERDICT_RE.search(text)
-        return match.group(1).upper() if match else None
+        return _VERDICTS[match.group(1).upper()] if match else None
 
     async def _one_ordering(
         self,
@@ -320,7 +324,7 @@ class PairwiseJudge:
         second: str,
         client: LLMClient,
         candidate: Candidate,
-    ) -> tuple[str | None, str]:
+    ) -> tuple[Verdict | None, str]:
         cfg = ModelConfig(task_model=self.judge_model, temperature=0.0)
         example = Example(
             inputs={

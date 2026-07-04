@@ -141,7 +141,9 @@ def load_helpsteer2(
     Requires ``promptline[data]``.
     """
     try:
-        import datasets as hf_datasets
+        # Optional extra `promptline[data]`; pyright cannot resolve the
+        # import when the extra is not installed in the dev environment.
+        import datasets as hf_datasets  # pyright: ignore[reportMissingImports]
     except ImportError as exc:
         raise ImportError(_DATA_EXTRA_MSG) from exc
 
@@ -156,7 +158,9 @@ def load_bitext(limit: int | None = None) -> Dataset:
     Requires ``promptline[data]``.
     """
     try:
-        import datasets as hf_datasets
+        # Optional extra `promptline[data]`; pyright cannot resolve the
+        # import when the extra is not installed in the dev environment.
+        import datasets as hf_datasets  # pyright: ignore[reportMissingImports]
     except ImportError as exc:
         raise ImportError(_DATA_EXTRA_MSG) from exc
 
@@ -177,7 +181,9 @@ def load_mtbench_human(limit: int | None = None) -> Dataset:
     Requires ``promptline[data]``.
     """
     try:
-        import datasets as hf_datasets
+        # Optional extra `promptline[data]`; pyright cannot resolve the
+        # import when the extra is not installed in the dev environment.
+        import datasets as hf_datasets  # pyright: ignore[reportMissingImports]
     except ImportError as exc:
         raise ImportError(_DATA_EXTRA_MSG) from exc
 

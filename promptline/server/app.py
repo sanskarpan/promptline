@@ -155,14 +155,18 @@ def create_app(
 
     # ---- Control plane: runs -------------------------------------------------
 
-    @app.post("/runs")
-    async def start_run(spec: StartRunRequest) -> dict:
+    # response_model=None: FastAPI cannot build a response model from the
+    # dict | JSONResponse union (the error path returns a JSONResponse).
+    @app.post("/runs", response_model=None)
+    async def start_run(spec: StartRunRequest) -> dict | JSONResponse:
         # async so RunManager.start creates the asyncio task on the serving loop.
         if run_starter is None:
             raise HTTPException(400, "run starting is not configured on this server")
+        # Bind to a local so the None-narrowing survives into the lambda.
+        starter = run_starter
         try:
             run_id = run_manager.start(
-                lambda emit, run_dir: run_starter(spec, emit, run_dir)
+                lambda emit, run_dir: starter(spec, emit, run_dir)
             )
         except RunStartError as exc:
             # Factory raised synchronously (e.g. dataset not found).  The run

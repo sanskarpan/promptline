@@ -4,6 +4,8 @@ Implemented directly on numpy (no sklearn dependency).
 """
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 from scipy import stats
 
@@ -67,7 +69,10 @@ def cohens_kappa(a: list[int], b: list[int], weights: str | None = None) -> floa
 
 def spearman(a: list[float], b: list[float]) -> float:
     """Spearman rank correlation via :func:`scipy.stats.spearmanr`."""
-    return float(stats.spearmanr(a, b).statistic)
+    # scipy types spearmanr's SignificanceResult elements as plain `object`,
+    # so cast the statistic; at runtime it is always a numpy float.
+    statistic = cast("float", stats.spearmanr(a, b)[0])
+    return float(statistic)
 
 
 # ---------------------------------------------------------------------------
