@@ -39,6 +39,16 @@ promptline serve                      # GET /prompts/support/active
 
 No key? `promptline demo setup --offline` plus the `PROMPTLINE_FAKE_SCRIPT` fake client rehearses the whole pipeline deterministically — see [examples/support-assistant/README.md](examples/support-assistant/README.md).
 
+### Dashboard (optional)
+
+`promptline serve` hosts the React dashboard when it has been built (a cloned repo does not ship `web/dist`):
+
+```bash
+cd web && npm install && npm run build   # then: promptline serve
+```
+
+Without the build, `serve` prints a warning and the API (control + serving planes) works as usual.
+
 ## Architecture
 
 Library-core with thin shells: CLI, TUI, and FastAPI server are thin layers over one Python package; the web dashboard is a static React app served by FastAPI.

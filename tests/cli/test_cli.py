@@ -1197,3 +1197,52 @@ def test_gate_judge_without_certificate_refuses(tmp_path: Path) -> None:
     )
     assert result.exit_code == 2, result.output
     assert "Gate refused to run" in result.output
+
+
+# ---------------------------------------------------------------------------
+# serve: dashboard availability warning
+# ---------------------------------------------------------------------------
+
+
+def test_serve_warns_when_dashboard_not_built(tmp_path: Path, monkeypatch) -> None:
+    """serve should print a clear warning when web/dist is missing."""
+    from unittest.mock import patch
+
+    import promptline.cli.main as cli_main
+
+    cfg_path = tmp_path / "promptline.yaml"
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
+
+    monkeypatch.setattr(
+        cli_main, "_web_dist_path", lambda: tmp_path / "no-dist"
+    )
+    with patch("uvicorn.run") as fake_run:
+        result = runner.invoke(
+            app, ["serve", "--config", str(cfg_path)], catch_exceptions=False
+        )
+    assert result.exit_code == 0, result.output
+    flat = " ".join(result.output.split())  # rich wraps long lines
+    assert "dashboard not built" in flat
+    assert "npm run build" in flat
+    assert "API still available" in flat
+    assert fake_run.called
+
+
+def test_serve_no_warning_when_dashboard_built(tmp_path: Path, monkeypatch) -> None:
+    from unittest.mock import patch
+
+    import promptline.cli.main as cli_main
+
+    cfg_path = tmp_path / "promptline.yaml"
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
+
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html></html>")
+    monkeypatch.setattr(cli_main, "_web_dist_path", lambda: dist)
+    with patch("uvicorn.run"):
+        result = runner.invoke(
+            app, ["serve", "--config", str(cfg_path)], catch_exceptions=False
+        )
+    assert result.exit_code == 0, result.output
+    assert "dashboard not built" not in result.output

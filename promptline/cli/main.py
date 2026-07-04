@@ -921,6 +921,26 @@ def registry_rollback_cmd(
 # ---------------------------------------------------------------------------
 
 
+def _web_dist_path() -> Path:
+    """Location of the built dashboard (repo checkout layout)."""
+    return Path(__file__).resolve().parents[2] / "web" / "dist"
+
+
+def _warn_if_dashboard_missing() -> bool:
+    """Print an amber warning when the dashboard is not built.
+
+    Returns True when the warning was printed (dashboard missing).
+    """
+    if (_web_dist_path() / "index.html").exists():
+        return False
+    console.print(
+        "[yellow]dashboard not built — run: "
+        "cd web && npm install && npm run build "
+        "(API still available)[/yellow]"
+    )
+    return True
+
+
 def build_app_from_config(config_path: str):
     """Build the FastAPI app with real run_starter/gate_runner closures.
 
@@ -1006,7 +1026,7 @@ def build_app_from_config(config_path: str):
         return _run()
 
     # Serve the built dashboard when web/dist exists next to the repo root.
-    web_dist = Path(__file__).resolve().parents[2] / "web" / "dist"
+    web_dist = _web_dist_path()
     return create_app(
         registry,
         run_manager,
@@ -1059,6 +1079,7 @@ def serve(
     if not Path(config).exists():
         console.print(f"[red]Config not found:[/red] {config}")
         raise typer.Exit(1)
+    _warn_if_dashboard_missing()
     import uvicorn
 
     uvicorn.run(build_app_from_config(config), host=host, port=port)
