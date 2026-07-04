@@ -36,6 +36,9 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+  "live: hits real OpenRouter models; skipped unless OPENROUTER_API_KEY is set",
+]
 
 [project.scripts]
 promptline = "promptline.cli.main:app"
