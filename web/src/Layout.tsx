@@ -1,0 +1,35 @@
+import { NavLink, Outlet } from "react-router-dom";
+
+const links = [
+  { to: "/runs", label: "Runs" },
+  { to: "/judge", label: "Judge" },
+  { to: "/gate", label: "Gate" },
+  { to: "/registry", label: "Registry" },
+];
+
+export function Layout() {
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="title">PROMPTLINE</div>
+          <div className="version">v0.1.0</div>
+        </div>
+        <nav>
+          {links.map((l) => (
+            <NavLink
+              key={l.to}
+              to={l.to}
+              className={({ isActive }) => (isActive ? "active" : "")}
+            >
+              {l.label}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+      <main className="content">
+        <Outlet />
+      </main>
+    </div>
+  );
+}
