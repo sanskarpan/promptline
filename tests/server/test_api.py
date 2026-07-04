@@ -569,3 +569,158 @@ def test_server_run_uncalibrated_judge_returns_400(tmp_path: Path) -> None:
     finally:
         os.environ.clear()
         os.environ.update(env_backup)
+
+
+# ---------------------------------------------------------------------------
+# Server gate parity: 400 on uncalibrated judge; promote activates winner
+# ---------------------------------------------------------------------------
+
+
+def test_gate_endpoint_uncalibrated_judge_400(tmp_path: Path) -> None:
+    from promptline.judge.calibrator import UncalibratedJudgeError
+
+    def _raise(payload: dict):
+        raise UncalibratedJudgeError("no calibration certificate at cert.json")
+
+    app, _, _ = _make_app(tmp_path, gate_runner=_raise)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/gate",
+            json={"program": "main", "candidate_ids": ["p1"]},
+        )
+        assert resp.status_code == 400
+        assert "certificate" in resp.json()["detail"]
+
+
+def _gate_parity_fixture(tmp_path: Path):
+    """Config + registry + splits + keyed fake so 'good-1' beats 'base-1'."""
+    import os
+
+    import yaml
+
+    from promptline.registry.registry import PromptRegistry
+
+    cfg_path = tmp_path / "promptline.yaml"
+    registry_dir = tmp_path / "reg"
+    cfg = {
+        "program": {
+            "name": "main",
+            "instruction": "Answer the question.",
+            "inputs": ["question"],
+            "outputs": ["answer"],
+        },
+        "models": {"task": "fake/model", "reflection": "", "judge": ""},
+        "dataset": {"kind": "jsonl", "path": ""},
+        "judge": {"enabled": False},
+        "budget": {"max_rollouts": 500, "max_cost_usd": None},
+        "gate": {"alpha": 0.05, "min_examples": 20},
+        "registry": {"path": str(registry_dir)},
+    }
+    cfg_path.write_text(yaml.dump(cfg))
+
+    registry = PromptRegistry(registry_dir)
+    registry.register(_cand("base-1", "base answer"), "main")
+    registry.register(_cand("good-1", "good answer"), "main")
+    registry.activate("main", "base-1")
+
+    dev_path = tmp_path / "dev.jsonl"
+    val_path = tmp_path / "val.jsonl"
+    dev_path.write_text(
+        "".join(
+            json.dumps(
+                {"inputs": {"question": f"d{i}"}, "labels": {"answer": "RIGHT"}}
+            )
+            + "\n"
+            for i in range(25)
+        )
+    )
+    val_path.write_text(
+        "".join(
+            json.dumps(
+                {"inputs": {"question": f"v{i}"}, "labels": {"answer": "RIGHT"}}
+            )
+            + "\n"
+            for i in range(12)
+        )
+    )
+
+    fake_path = tmp_path / "fake.json"
+    fake_path.write_text(
+        json.dumps(
+            {
+                "keyed": [
+                    {"contains": "good answer", "response": "[[answer]]: RIGHT"}
+                ],
+                "responses": ["[[answer]]: WRONG"],
+            }
+        )
+    )
+    env_backup = os.environ.copy()
+    os.environ["PROMPTLINE_FAKE_SCRIPT"] = str(fake_path)
+    return cfg_path, registry, dev_path, val_path, env_backup
+
+
+def test_gate_endpoint_promotes_and_activates_winner(tmp_path: Path) -> None:
+    """POST /gate promote verdict → winner activated, activated: true."""
+    import os
+
+    from promptline.cli.main import build_app_from_config
+
+    cfg_path, registry, dev_path, val_path, env_backup = _gate_parity_fixture(
+        tmp_path
+    )
+    try:
+        server_app = build_app_from_config(str(cfg_path))
+        with TestClient(server_app) as client:
+            resp = client.post(
+                "/gate",
+                json={
+                    "program": "main",
+                    "candidate_ids": ["good-1"],
+                    "dev_path": str(dev_path),
+                    "val_path": str(val_path),
+                },
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["verdict"] == "promote"
+            assert body["winner_id"] == "good-1"
+            assert body["activated"] is True
+            active = registry.get_active("main")
+            assert active is not None and active[0] == "good-1"
+    finally:
+        os.environ.clear()
+        os.environ.update(env_backup)
+
+
+def test_gate_endpoint_promote_false_does_not_activate(tmp_path: Path) -> None:
+    """promote=false → verdict still reported but nothing is activated."""
+    import os
+
+    from promptline.cli.main import build_app_from_config
+
+    cfg_path, registry, dev_path, val_path, env_backup = _gate_parity_fixture(
+        tmp_path
+    )
+    try:
+        server_app = build_app_from_config(str(cfg_path))
+        with TestClient(server_app) as client:
+            resp = client.post(
+                "/gate",
+                json={
+                    "program": "main",
+                    "candidate_ids": ["good-1"],
+                    "dev_path": str(dev_path),
+                    "val_path": str(val_path),
+                    "promote": False,
+                },
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["verdict"] == "promote"
+            assert body["activated"] is False
+            active = registry.get_active("main")
+            assert active is not None and active[0] == "base-1"
+    finally:
+        os.environ.clear()
+        os.environ.update(env_backup)

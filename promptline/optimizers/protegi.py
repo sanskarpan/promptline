@@ -312,7 +312,8 @@ class ProTeGi(Optimizer):
                         RunEvent.now(
                             "candidate_proposed",
                             candidate_id=child.id,
-                            parent_id=parent.id,
+                            parents=[parent.id],
+                            parent_id=parent.id,  # legacy alias
                             round=round_no,
                             source="gradient",
                             instruction=new_instruction,
@@ -337,7 +338,8 @@ class ProTeGi(Optimizer):
                             RunEvent.now(
                                 "candidate_proposed",
                                 candidate_id=para_child.id,
-                                parent_id=child.id,
+                                parents=[child.id],
+                                parent_id=child.id,  # legacy alias
                                 round=round_no,
                                 source="paraphrase",
                                 instruction=para_instruction,
@@ -447,14 +449,14 @@ class ProTeGi(Optimizer):
                 all_scores[c.id] = _acc_mean(c)
             # else: never evaluated → omit from scores
 
-        _emit(
-            RunEvent.now(
-                "run_finished",
-                optimizer=self.name,
-                best_id=best.id,
-                n_candidates=len(all_candidates),
-            )
-        )
+        finished_payload: dict = {
+            "optimizer": self.name,
+            "best_id": best.id,
+            "n_candidates": len(all_candidates),
+        }
+        if best.id in all_scores:
+            finished_payload["best_score"] = all_scores[best.id]
+        _emit(RunEvent.now("run_finished", **finished_payload))
 
         return OptimizeResult(
             best=best,

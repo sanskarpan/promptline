@@ -530,7 +530,8 @@ class GEPA(Optimizer):
                 RunEvent.now(
                     "candidate_proposed",
                     candidate_id=child.id,
-                    parent_id=parent_id,
+                    parents=[parent_id],
+                    parent_id=parent_id,  # legacy alias
                     module=module_name,
                     iteration=state.iteration,
                     instruction=new_instruction,
@@ -574,6 +575,7 @@ class GEPA(Optimizer):
                 "run_finished",
                 optimizer=self.name,
                 best_id=best_id,
+                best_score=state.mean(best_id),
                 pool_size=len(state.pool),
                 iterations=state.iteration,
                 merges_done=state.merges_done,

@@ -282,6 +282,7 @@ class MIPRO(Optimizer):
                     RunEvent.now(
                         "candidate_proposed",
                         candidate_id=proposal_id,
+                        parents=[seed.id],
                         module=module.name,
                         tip=tip,
                         instruction=proposed,
@@ -442,6 +443,8 @@ class MIPRO(Optimizer):
                             trial=trial_idx,
                             rollouts_used=budget.rollouts_used,
                             cost_used=budget.cost_used,
+                            max_rollouts=budget.max_rollouts,
+                            max_cost_usd=budget.max_cost_usd,
                         )
                     )
                     continue
@@ -458,6 +461,7 @@ class MIPRO(Optimizer):
                     trial=trial_idx,
                     config={"inst": dict(config_inst), "demo": dict(config_demo)},
                     score=score,
+                    mean_score=score,  # alias for cross-optimizer consumers
                     cached=cached,
                 )
             )
@@ -467,6 +471,8 @@ class MIPRO(Optimizer):
                     trial=trial_idx,
                     rollouts_used=budget.rollouts_used,
                     cost_used=budget.cost_used,
+                    max_rollouts=budget.max_rollouts,
+                    max_cost_usd=budget.max_cost_usd,
                 )
             )
 
@@ -494,7 +500,14 @@ class MIPRO(Optimizer):
         if best.id not in scores:
             scores[best.id] = 0.0
 
-        _emit(RunEvent.now("run_finished", optimizer=self.name, best_id=best.id))
+        _emit(
+            RunEvent.now(
+                "run_finished",
+                optimizer=self.name,
+                best_id=best.id,
+                best_score=scores.get(best.id),
+            )
+        )
 
         return OptimizeResult(
             best=best,

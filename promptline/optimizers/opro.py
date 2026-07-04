@@ -198,6 +198,17 @@ class OPRO(Optimizer):
             if budget.exhausted:
                 break
 
+            _emit(
+                RunEvent.now(
+                    "budget_tick",
+                    step=step,
+                    rollouts_used=budget.rollouts_used,
+                    cost_used=budget.cost_used,
+                    max_rollouts=budget.max_rollouts,
+                    max_cost_usd=budget.max_cost_usd,
+                )
+            )
+
             # Sort trajectory ascending by score (best last for the LLM).
             traj_sorted = sorted(trajectory, key=lambda t: t[1])
 
@@ -234,6 +245,7 @@ class OPRO(Optimizer):
                     RunEvent.now(
                         "candidate_proposed",
                         candidate_id=candidate.id,
+                        parents=[seed.id],
                         step=step,
                         instruction=new_instruction,
                     )
@@ -275,6 +287,7 @@ class OPRO(Optimizer):
                 "run_finished",
                 optimizer=self.name,
                 best_id=best_id,
+                best_score=all_scores[best_id],
             )
         )
 

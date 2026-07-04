@@ -1012,7 +1012,12 @@ def build_app_from_config(config_path: str):
             if metric_mode == "judge" and settings.require_certificate_path is None:
                 settings.require_certificate_path = resolve_certificate_path(cfg)
                 settings.min_kappa = cfg.judge.min_kappa
-            return await run_gate(
+            # Parity with the CLI gate command: cost-capped budget, no
+            # rollout ceiling (gate runs are bounded by data size).
+            gate_budget = Budget(
+                max_rollouts=None, max_cost_usd=cfg.budget.max_cost_usd
+            )
+            report = await run_gate(
                 program=program,
                 incumbent=incumbent,
                 candidates=candidates,
@@ -1021,7 +1026,21 @@ def build_app_from_config(config_path: str):
                 harness=harness,
                 metric=metric,
                 settings=settings,
+                budget=gate_budget,
             )
+            # Parity with the CLI: on a promote verdict, activate the winner
+            # with the gate report attached (unless promote=false).
+            activated = False
+            if (
+                payload.get("promote", True)
+                and report.verdict == "promote"
+                and report.winner_id
+            ):
+                registry.activate(
+                    program_name, report.winner_id, report.model_dump_json()
+                )
+                activated = True
+            return {**report.model_dump(), "activated": activated}
 
         return _run()
 

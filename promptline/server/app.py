@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict
 from sse_starlette.sse import EventSourceResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from promptline.judge.calibrator import UncalibratedJudgeError
 from promptline.registry.registry import PromptRegistry
 from promptline.server.runs import RunManager, RunStartError
 
@@ -82,6 +83,9 @@ class GateRequest(BaseModel):
     candidate_ids: list[str] = []
     dev_path: str = ""
     val_path: str = ""
+    #: On a promote verdict, activate the winner (CLI parity).  The response
+    #: reports the outcome in ``activated``.
+    promote: bool = True
 
 
 class ActivateRequest(BaseModel):
@@ -236,6 +240,9 @@ def create_app(
             result = gate_runner(payload.model_dump())
             if inspect.isawaitable(result):
                 result = await result
+        except UncalibratedJudgeError as exc:
+            # Judge metric configured but no passing calibration certificate.
+            raise HTTPException(400, str(exc)) from exc
         except (ValueError, KeyError, FileNotFoundError) as exc:
             # Covers: no incumbent, unknown candidate id, missing dev/val path.
             raise HTTPException(400, str(exc)) from exc

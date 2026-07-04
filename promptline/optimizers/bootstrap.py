@@ -174,10 +174,22 @@ class BootstrapFewShot(Optimizer):
         }
         best = seed.child(modules=new_modules, optimizer=self.name)
 
+        # One budget_tick after the collection loop so consumers see burn-down.
+        _emit(
+            RunEvent.now(
+                "budget_tick",
+                rollouts_used=budget.rollouts_used,
+                cost_used=budget.cost_used,
+                max_rollouts=budget.max_rollouts,
+                max_cost_usd=budget.max_cost_usd,
+            )
+        )
+
         _emit(
             RunEvent.now(
                 "candidate_proposed",
                 candidate_id=best.id,
+                parents=[seed.id],
                 demos_count={m: len(d) for m, d in module_demos.items()},
             )
         )
@@ -193,7 +205,10 @@ class BootstrapFewShot(Optimizer):
             report = await harness.evaluate(program, best, shuffled, metric, budget)
             scores[best.id] = report.mean_score
 
-        _emit(RunEvent.now("run_finished", optimizer=self.name, best_id=best.id))
+        finished_payload: dict = {"optimizer": self.name, "best_id": best.id}
+        if best.id in scores:
+            finished_payload["best_score"] = scores[best.id]
+        _emit(RunEvent.now("run_finished", **finished_payload))
 
         return OptimizeResult(
             best=best,
@@ -313,6 +328,17 @@ class BootstrapRandomSearch(Optimizer):
             if budget.exhausted:
                 break
 
+            _emit(
+                RunEvent.now(
+                    "budget_tick",
+                    subset_idx=subset_idx,
+                    rollouts_used=budget.rollouts_used,
+                    cost_used=budget.cost_used,
+                    max_rollouts=budget.max_rollouts,
+                    max_cost_usd=budget.max_cost_usd,
+                )
+            )
+
             if not pool:
                 # Empty pool — evaluate seed as fallback.
                 chosen: list[Demo] = []
@@ -341,6 +367,7 @@ class BootstrapRandomSearch(Optimizer):
                 RunEvent.now(
                     "candidate_proposed",
                     candidate_id=candidate.id,
+                    parents=[seed.id],
                     subset_idx=subset_idx,
                     demos_count=len(chosen),
                 )
@@ -376,6 +403,7 @@ class BootstrapRandomSearch(Optimizer):
                 "run_finished",
                 optimizer=self.name,
                 best_id=best_candidate.id,
+                best_score=all_scores[best_candidate.id],
             )
         )
 
