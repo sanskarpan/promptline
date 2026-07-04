@@ -94,7 +94,7 @@ All implemented from scratch against one contract (`optimize(program, seed, trai
 |---|---|---|
 | **GEPA** (flagship) | Per-instance Pareto frontier + reflective mutation from execution traces, system-aware merges, strict minibatch acceptance | [arXiv 2507.19457](https://arxiv.org/abs/2507.19457) |
 | **MIPRO** | Bootstrapped demo sets × grounded instruction proposals, searched jointly with TPE (Optuna) and periodic full evals | [arXiv 2406.11695](https://arxiv.org/abs/2406.11695) |
-| **BootstrapFewShot (+RS)** | Teacher traces that pass the metric become few-shot demos; random search over demo subsets | DSPy lineage, same paper as MIPRO |
+| **BootstrapFewShot (+RS)** | Teacher traces that pass the metric become few-shot demos; random search over demo subsets | DSPy ([Khattab et al. 2023](https://arxiv.org/abs/2310.03714)) |
 | **ProTeGi** | Textual gradients: critique failures → counter-edit → paraphrase, with CAPO-style successive-halving racing | [EMNLP 2023](https://arxiv.org/abs/2305.03495), racing: [arXiv 2504.16005](https://arxiv.org/abs/2504.16005) |
 | **OPRO** | Trajectory extrapolation: show (instruction, score) history sorted worst→best, ask for a better one. Needs a strong proposer model | [arXiv 2309.03409](https://arxiv.org/abs/2309.03409) |
 

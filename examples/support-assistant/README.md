@@ -129,3 +129,8 @@ promptline registry list
 ```
 
 `PROMPTLINE_FAKE_SCRIPT` points at a JSON file with a cycling `"responses"` list and optional `"keyed"` rules (`[{"contains": ..., "response": ...}]`) matched against the prompt text — enough to exercise the whole pipeline deterministically, which is exactly how the test suite does it.
+
+Two size caveats in offline mode (the bundled fixtures are deliberately tiny — 50 gold rows, 60 support rows):
+
+- **Calibration:** the calibrator holds out half the gold set, so the certificate reports `n_holdout ≈ 25` instead of the ~200 you get online. κ is computed the same way, just on a much smaller (noisier) holdout.
+- **Gating:** the offline val split is only ~15 rows (dev ~18), which is below the gate's `min_examples: 50` — `promptline gate` will refuse to run on the offline splits. Use the online datasets for a real gate run, or lower `gate.min_examples` in `promptline.yaml` (e.g. to 10) for a toy rehearsal; at these sizes a `val_too_small` reject remains possible by design.

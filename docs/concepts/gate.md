@@ -28,7 +28,7 @@ The incumbent is evaluated once on dev; each candidate is evaluated on the *same
 p = (1 + #{ |mean(boot)| ≥ |mean(obs)| }) / (n_boot + 1)
 ```
 
-**Holm–Bonferroni** (`holm_correct`) then controls the family-wise error rate across multiple candidates: sort p-values ascending and compare the k-th against `α / (n − k)`, stopping at the first failure. Survivors must *also* have a positive mean delta. The winner is the survivor with the largest mean delta; if none survives, the verdict is `reject` and val is never touched (no information leaks into it).
+**Holm–Bonferroni** (`holm_correct`) then controls the family-wise error rate across multiple candidates: sort p-values ascending (smallest p first) and compare the k-th against `α / (n − k + 1)` for k = 1..n, stopping at the first failure. Survivors must *also* have a positive mean delta. The winner is the survivor with the largest mean delta; if none survives, the verdict is `reject` and val is never touched (no information leaks into it).
 
 ## Val confirmation
 
