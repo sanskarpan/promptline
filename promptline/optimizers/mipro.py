@@ -26,6 +26,9 @@ from promptline.optimizers.base import Optimizer, OptimizeResult, RunEvent
 from promptline.optimizers.bootstrap import collect_demo_pool
 from promptline.optimizers.gepa.reflect import parse_new_instruction
 
+# Silence optuna's per-trial INFO chatter once, at import time.
+optuna.logging.set_verbosity(optuna.logging.WARNING)
+
 #: Style tips randomly injected into proposal prompts (one per proposal).
 TIPS = [
     "Be creative.",
@@ -349,7 +352,6 @@ class MIPRO(Optimizer):
         # ----------------------------------------------------------------
         # Stage 3: TPE search over (instruction, demo set) per module.
         # ----------------------------------------------------------------
-        optuna.logging.set_verbosity(optuna.logging.WARNING)
         study = optuna.create_study(
             direction="maximize",
             sampler=optuna.samplers.TPESampler(seed=self.rng_seed),
@@ -369,6 +371,9 @@ class MIPRO(Optimizer):
             key = max(pending, key=lambda k: mb_scores[k])
             candidate = cand_by_key[key]
             report = await harness.evaluate(program, candidate, trainset, metric, budget)
+            if report.truncated:
+                # Budget ran out mid-eval: the mean is unreliable — skip it.
+                return
             full_scores[key] = report.mean_score
             _emit(
                 RunEvent.now(
@@ -411,16 +416,29 @@ class MIPRO(Optimizer):
                 }
                 candidate = seed.child(modules=modules, optimizer=self.name)
                 candidate.meta = {"inst": dict(config_inst), "demo": dict(config_demo)}
-                all_candidates.append(candidate)
-                cand_by_key[key] = candidate
 
                 if self.minibatch_size < len(trainset):
                     batch = rng.sample(trainset, self.minibatch_size)
                 else:
                     batch = list(trainset)
                 report = await harness.evaluate(program, candidate, batch, metric, budget)
+                if report.truncated:
+                    # Budget ran out mid-minibatch: the mean is unreliable.
+                    # Tell the study the trial was pruned and drop the config.
+                    study.tell(trial, state=optuna.trial.TrialState.PRUNED)
+                    _emit(
+                        RunEvent.now(
+                            "budget_tick",
+                            trial=trial_idx,
+                            rollouts_used=budget.rollouts_used,
+                            cost_used=budget.cost_used,
+                        )
+                    )
+                    continue
                 score = report.mean_score
                 mb_scores[key] = score
+                all_candidates.append(candidate)
+                cand_by_key[key] = candidate
 
             study.tell(trial, score)
             completed += 1

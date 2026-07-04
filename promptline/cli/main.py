@@ -69,6 +69,7 @@ class OptimizerChoice(StrEnum):
     opro = "opro"
     gepa = "gepa"
     protegi = "protegi"
+    mipro = "mipro"
 
 
 def load_examples_jsonl(path: str) -> list[Example]:
@@ -169,6 +170,9 @@ def _build_optimizer(
     elif choice == OptimizerChoice.protegi:
         from promptline.optimizers.protegi import ProTeGi
         return ProTeGi()
+    elif choice == OptimizerChoice.mipro:
+        from promptline.optimizers.mipro import MIPRO
+        return MIPRO()
     else:
         from promptline.optimizers.opro import OPRO
         return OPRO()

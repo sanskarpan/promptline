@@ -533,6 +533,38 @@ def test_optimize_protegi_exit_0_and_registers(tmp_path: Path) -> None:
     assert len(PromptRegistry(registry_dir).list_prompts("main")) == 1
 
 
+def test_optimize_mipro_exit_0_and_registers(tmp_path: Path) -> None:
+    """optimize --optimizer mipro must exit 0 and register the best prompt."""
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    fake_path = tmp_path / "fake_script.json"
+    registry_dir = tmp_path / "reg"
+
+    _write_config(cfg_path, registry_path=str(registry_dir))
+    _write_jsonl(data_path, _make_examples(3))
+    _write_fake_script(fake_path, _make_fake_responses(3))
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    result = runner.invoke(
+        app,
+        [
+            "optimize",
+            "--optimizer", "mipro",
+            "--config", str(cfg_path),
+            "--data", str(data_path),
+            "--budget", "20",
+        ],
+        env=env,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "Registered prompt:" in result.output
+
+    from promptline.registry.registry import PromptRegistry
+
+    assert len(PromptRegistry(registry_dir).list_prompts("main")) == 1
+
+
 def test_optimize_resume_rejected_for_non_gepa(tmp_path: Path) -> None:
     cfg_path = tmp_path / "promptline.yaml"
     data_path = tmp_path / "data.jsonl"

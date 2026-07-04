@@ -297,6 +297,67 @@ async def test_mipro_budget_early_stop() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mipro_truncated_full_eval_not_recorded() -> None:
+    """A budget-truncated full eval must not be stored or emitted."""
+    program = _program()
+    seed = _seed(program)
+    client = _pass_client()
+    harness = EvalHarness(client=client, cfg=_model_cfg())
+    # Minibatch (2 rollouts) fits; the full eval over 6 examples truncates at 5.
+    budget = Budget(max_rollouts=5)
+
+    opt = MIPRO(
+        n_instruction_candidates=1,
+        n_demo_sets=1,
+        n_trials=5,
+        minibatch_size=2,
+        full_eval_steps=1,
+        rng_seed=0,
+    )
+    events: list[RunEvent] = []
+    result = await opt.optimize(
+        program, seed, _examples(6), _always_pass_metric, budget, harness,
+        emit=events.append,
+    )
+
+    assert all(e.type != "full_eval" for e in events), (
+        "truncated full eval must not emit a full_eval event"
+    )
+    # Best falls back to the minibatch score, untainted by the truncated mean.
+    assert result.scores[result.best.id] == pytest.approx(1.0)
+
+
+@pytest.mark.asyncio
+async def test_mipro_truncated_minibatch_pruned_not_scored() -> None:
+    """A budget-truncated minibatch prunes the trial without recording a score."""
+    program = _program()
+    seed = _seed(program)
+    client = _pass_client()
+    harness = EvalHarness(client=client, cfg=_model_cfg())
+    budget = Budget(max_rollouts=1)  # minibatch of 4 truncates immediately
+
+    opt = MIPRO(
+        n_instruction_candidates=1,
+        n_demo_sets=1,
+        n_trials=5,
+        minibatch_size=4,
+        full_eval_steps=100,
+        rng_seed=0,
+    )
+    events: list[RunEvent] = []
+    result = await opt.optimize(
+        program, seed, _examples(6), _always_pass_metric, budget, harness,
+        emit=events.append,
+    )
+
+    assert all(e.type != "minibatch_scored" for e in events), (
+        "truncated minibatch must not emit a minibatch_scored event"
+    )
+    # No config survived: the seed is returned as best.
+    assert result.best.id == seed.id
+
+
+@pytest.mark.asyncio
 async def test_mipro_events_all_types() -> None:
     """A full run emits all six event types in a sane order."""
     program = _program()
