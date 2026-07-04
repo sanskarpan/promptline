@@ -48,6 +48,25 @@ app = typer.Typer(
     add_completion=False,
 )
 
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(__version__)
+        raise typer.Exit(0)
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Print the Promptline version and exit.",
+    ),
+) -> None:
+    """Prompt Optimization Pipeline CLI."""
+
 # ---------------------------------------------------------------------------
 # demo + data sub-apps
 # ---------------------------------------------------------------------------

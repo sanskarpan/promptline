@@ -5,6 +5,15 @@ build-backend = "hatchling.build"
 [project]
 name = "promptline"
 version = "0.1.0"
+description = "Calibrate -> Optimize -> Gate -> Serve: automatic prompt optimization with a calibrated LLM judge, statistical deploy gating, and a versioned serving registry."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Sanskar Pandey" }]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
 requires-python = ">=3.11"
 dependencies = [
   "httpx",
@@ -20,6 +29,10 @@ dependencies = [
   "scipy",
   "pyyaml",
 ]
+
+[project.urls]
+Homepage = "https://github.com/sanskarpan/promptline"
+Repository = "https://github.com/sanskarpan/promptline"
 
 [project.optional-dependencies]
 data = ["datasets"]

@@ -115,6 +115,14 @@ def test_version_prints_version() -> None:
     assert __version__ in result.output
 
 
+def test_version_flag_prints_version() -> None:
+    """--version eager flag should print the version and exit 0."""
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    from promptline import __version__
+    assert __version__ in result.output
+
+
 # ---------------------------------------------------------------------------
 # optimize tests
 # ---------------------------------------------------------------------------
