@@ -477,13 +477,18 @@ def test_web_dist_served_at_root_and_api_still_wins(tmp_path: Path) -> None:
         # Real static assets are served.
         assert client.get("/app.js").status_code == 200
 
-        # SPA fallback: unknown non-API path returns index.html.
-        resp = client.get("/lineage/some-run")
+        # SPA fallback: /ui/* paths (which never match an API route) → index.html.
+        resp = client.get("/ui/runs")
+        assert resp.status_code == 200
+        assert "PROMPTLINE" in resp.text
+
+        resp = client.get("/ui/lineage/some-run")
         assert resp.status_code == 200
         assert "PROMPTLINE" in resp.text
 
         # API routes still win over the static mount.
         assert client.get("/prompts/main/active").status_code == 404
+        # GET /runs returns JSON (API), not the SPA, even with static mount active.
         assert client.get("/runs").json() == []
         cand = _cand("p1")
         registry.register(cand, "main")

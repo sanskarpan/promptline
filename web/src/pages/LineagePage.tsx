@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { openRunEvents } from "../api";
+import { openRunEvents, type RunEvent } from "../api";
 import { DiffView } from "../components/DiffView";
 import { Panel } from "../components/Panel";
 import {
@@ -20,7 +20,17 @@ export function LineagePage() {
 
   useEffect(() => {
     if (!runId) return;
-    const source = openRunEvents(runId, dispatch);
+    const finishedRef = { current: false };
+    const source = openRunEvents(runId, (ev: RunEvent) => {
+      dispatch(ev);
+      if (ev.type === "run_finished") {
+        finishedRef.current = true;
+        source.close();
+      }
+    });
+    source.onerror = () => {
+      if (finishedRef.current) source.close();
+    };
     return () => source.close();
   }, [runId]);
 
@@ -42,7 +52,7 @@ export function LineagePage() {
       <div className="grow">
         <Panel title={`Lineage — Run ${runId ?? ""}`}>
           <div className="dim" style={{ marginBottom: 8 }}>
-            <Link to={`/runs/${runId}`}>← BACK TO RUN</Link>
+            <Link to={`/ui/runs/${runId}`}>← BACK TO RUN</Link>
             {"  ·  "}
             {layout.nodes.length} candidates, {layout.layers} layers
           </div>

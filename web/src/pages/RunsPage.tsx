@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, type RunSummary } from "../api";
 import { Panel } from "../components/Panel";
 
-const OPTIMIZERS = ["gepa", "protegi", "opro", "mipro", "bootstrap"];
+const OPTIMIZERS = ["gepa", "protegi", "opro", "mipro", "bootstrap", "bootstrap-rs"];
 
 function statusClass(status: string): string {
   return `status-${status}`;
@@ -46,7 +46,7 @@ export function RunsPage() {
         data_path: dataPath,
         budget: budget ? Number(budget) : null,
       });
-      navigate(`/runs/${run_id}`);
+      navigate(`/ui/runs/${run_id}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -115,7 +115,7 @@ export function RunsPage() {
               <tr
                 key={r.run_id}
                 className="clickable"
-                onClick={() => navigate(`/runs/${r.run_id}`)}
+                onClick={() => navigate(`/ui/runs/${r.run_id}`)}
               >
                 <td>{r.run_id}</td>
                 <td className={statusClass(r.status)}>{r.status.toUpperCase()}</td>

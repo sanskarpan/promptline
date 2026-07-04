@@ -1,10 +1,10 @@
 import { NavLink, Outlet } from "react-router-dom";
 
 const links = [
-  { to: "/runs", label: "Runs" },
-  { to: "/judge", label: "Judge" },
-  { to: "/gate", label: "Gate" },
-  { to: "/registry", label: "Registry" },
+  { to: "/ui/runs", label: "Runs" },
+  { to: "/ui/judge", label: "Judge" },
+  { to: "/ui/gate", label: "Gate" },
+  { to: "/ui/registry", label: "Registry" },
 ];
 
 export function Layout() {

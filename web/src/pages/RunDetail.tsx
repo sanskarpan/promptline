@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, openRunEvents, type RunSummary } from "../api";
+import { api, openRunEvents, type RunEvent, type RunSummary } from "../api";
 import { Panel } from "../components/Panel";
 import { ScoreCurve } from "../components/ScoreCurve";
 import { initialRunState, runReducer, type BudgetState } from "../state/runReducer";
@@ -55,14 +55,40 @@ export function RunDetail() {
   const [run, setRun] = useState<RunSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const feedRef = useRef<HTMLPreElement>(null);
+  // Track whether the run has finished so onerror can close instead of retry.
+  const finishedRef = useRef(false);
 
   useEffect(() => {
     if (!id) return;
+    finishedRef.current = false;
+
     api
       .getRun(id)
-      .then(setRun)
+      .then((r) => {
+        setRun(r);
+        // If the run is already done when we open the page, mark it finished
+        // so the SSE onerror handler closes rather than retrying.
+        if (r.status === "finished" || r.status === "failed") {
+          finishedRef.current = true;
+        }
+      })
       .catch((e: Error) => setError(e.message));
-    const source = openRunEvents(id, dispatch);
+
+    const source = openRunEvents(id, (ev: RunEvent) => {
+      dispatch(ev);
+      if (ev.type === "run_finished") {
+        finishedRef.current = true;
+        // Server closes after this event; close client-side immediately so the
+        // browser does not open a reconnect that replays the entire stream.
+        source.close();
+      }
+    });
+
+    // If the connection drops and the run is already done, don't reconnect.
+    source.onerror = () => {
+      if (finishedRef.current) source.close();
+    };
+
     return () => source.close();
   }, [id]);
 
@@ -98,7 +124,7 @@ export function RunDetail() {
           </div>
         </div>
         <div style={{ marginTop: 8 }}>
-          <Link to={`/lineage/${id}`}>VIEW LINEAGE →</Link>
+          <Link to={`/ui/lineage/${id}`}>VIEW LINEAGE →</Link>
         </div>
         {error && <div className="error-text">{error}</div>}
       </Panel>

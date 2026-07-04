@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api, type CalibrationCertificate } from "../api";
 import { Panel } from "../components/Panel";
 
@@ -30,10 +30,8 @@ function Confusion({ matrix }: { matrix: number[][] }) {
         </div>
       ))}
       {matrix.map((row, i) => (
-        <>
-          <div key={`r${i}`} className="cell head">
-            {i}
-          </div>
+        <Fragment key={`row${i}`}>
+          <div className="cell head">{i}</div>
           {row.map((count, j) => (
             <div
               key={`${i}.${j}`}
@@ -46,7 +44,7 @@ function Confusion({ matrix }: { matrix: number[][] }) {
               {count}
             </div>
           ))}
-        </>
+        </Fragment>
       ))}
     </div>
   );

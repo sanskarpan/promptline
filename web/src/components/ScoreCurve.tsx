@@ -32,6 +32,10 @@ export function ScoreCurve({
   const lo = Math.min(...scores);
   const hi = Math.max(...scores);
 
+  // Legend layout: two entries at bottom-right of the SVG
+  const legendY = H - 4;
+  const legendX = W - 4;
+
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
@@ -69,6 +73,13 @@ export function ScoreCurve({
         const y = H - PAD - ((p.score - lo) / span) * (H - 2 * PAD);
         return <circle key={i} cx={x} cy={y} r={2.5} fill="var(--accent)" />;
       })}
+      {/* Legend */}
+      <g textAnchor="end" fontFamily="var(--mono)" fontSize={8}>
+        <line x1={legendX - 52} y1={legendY - 4} x2={legendX - 44} y2={legendY - 4} stroke="var(--accent)" strokeWidth={1.5} />
+        <text x={legendX - 40} y={legendY - 1} fill="var(--accent)">FULL EVAL</text>
+        <line x1={legendX - 52} y1={legendY + 6} x2={legendX - 44} y2={legendY + 6} stroke="var(--dim)" strokeWidth={1} opacity={0.6} />
+        <text x={legendX - 40} y={legendY + 9} fill="var(--dim)">MINIBATCH</text>
+      </g>
     </svg>
   );
 }
