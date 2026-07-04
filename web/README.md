@@ -39,3 +39,25 @@ Set `VITE_API_BASE` at build time to point the client at a non-origin API.
 ```sh
 npm test   # vitest run — reducer, lineage layout, diff view
 ```
+
+## End-to-end (Playwright)
+
+The e2e suite drives the built dashboard against a seeded fixture API
+(`tests/e2e/serve_fixture.py`: a finished GEPA run, an ACTIVE gated prompt and
+a passing judge certificate). Playwright starts and stops the server itself.
+
+```sh
+cd web
+npm run build                                # e2e serves web/dist
+npx playwright install chromium --with-deps  # or: npx playwright install chromium
+npm run e2e
+```
+
+Notes:
+
+- Chromium-only project, `retries: 0` — failures are real, never flaky-retried.
+- Requires a browser download; in environments where Chromium cannot be
+  installed (no network / unsupported OS), skip this suite — it is not part of
+  `uv run pytest` and CI should treat it as a separate opt-in job.
+- The fixture server binds `127.0.0.1:8788` (override with
+  `PROMPTLINE_FIXTURE_PORT`, mirrored in `playwright.config.ts`).
