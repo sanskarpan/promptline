@@ -46,6 +46,9 @@ def _write_config(path: Path, registry_dir: Path) -> None:
             "outputs": ["answer"],
         },
         "models": {"task": "fake/model", "reflection": "", "judge": ""},
+        # The e2e chain scripts exact-match answers; the judge metric path is
+        # covered by dedicated CLI/judge tests.
+        "judge": {"enabled": False},
         "dataset": {"kind": "jsonl", "path": "train.jsonl"},
         "budget": {"max_rollouts": 30, "max_cost_usd": None},
         # min_examples lowered to fit the small offline fixtures (see module

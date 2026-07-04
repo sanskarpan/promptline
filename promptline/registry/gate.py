@@ -19,7 +19,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from promptline.core.config import GateConfig
+from promptline.core.config import GateConfig, JudgeConfig
 from promptline.core.program import PromptProgram
 from promptline.core.types import Candidate, Example
 from promptline.eval.harness import Budget, EvalHarness, Metric
@@ -48,13 +48,26 @@ class GateSettings:
     min_kappa: float = 0.6
 
     @classmethod
-    def from_config(cls, cfg: GateConfig) -> GateSettings:
-        """Build settings from the ``gate`` section of PromptlineConfig."""
+    def from_config(
+        cls, cfg: GateConfig, judge: JudgeConfig | None = None
+    ) -> GateSettings:
+        """Build settings from the ``gate`` (and optionally ``judge``) config.
+
+        ``judge.certificate`` is the primary certificate location;
+        ``gate.certificate`` is honored for back-compat and wins when set.
+        When the judge section supplies the certificate, its ``min_kappa`` is
+        used too.
+        """
+        certificate = cfg.certificate
+        min_kappa = cfg.min_kappa
+        if not certificate and judge is not None and judge.certificate:
+            certificate = judge.certificate
+            min_kappa = judge.min_kappa
         return cls(
             alpha=cfg.alpha,
             min_examples=cfg.min_examples,
-            require_certificate_path=Path(cfg.certificate) if cfg.certificate else None,
-            min_kappa=cfg.min_kappa,
+            require_certificate_path=Path(certificate) if certificate else None,
+            min_kappa=min_kappa,
         )
 
 

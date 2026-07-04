@@ -408,6 +408,7 @@ def test_server_run_registers_with_run_id_and_records_eval(tmp_path: Path) -> No
         },
         "models": {"task": "fake/model", "reflection": "", "judge": ""},
         "dataset": {"kind": "jsonl", "path": ""},
+        "judge": {"enabled": False},
         "budget": {"max_rollouts": 10, "max_cost_usd": None},
         "gate": {"alpha": 0.05, "min_examples": 50},
         "registry": {"path": str(registry_dir)},
@@ -512,3 +513,59 @@ def test_no_web_dist_keeps_plain_404_at_root(tmp_path: Path) -> None:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# ---------------------------------------------------------------------------
+# Judge-as-metric: POST /runs refuses uncalibrated judge with 400
+# ---------------------------------------------------------------------------
+
+
+def test_server_run_uncalibrated_judge_returns_400(tmp_path: Path) -> None:
+    """POST /runs with judge metric enabled and no certificate → HTTP 400."""
+    import json as _json
+    import os
+
+    import yaml
+
+    from promptline.cli.main import build_app_from_config
+
+    cfg_path = tmp_path / "promptline.yaml"
+    cfg = {
+        "program": {
+            "name": "main",
+            "instruction": "Answer.",
+            "inputs": ["question"],
+            "outputs": ["answer"],
+        },
+        "models": {"task": "fake/model", "reflection": "", "judge": ""},
+        "dataset": {"kind": "jsonl", "path": ""},
+        "judge": {"enabled": True},
+        "budget": {"max_rollouts": 10, "max_cost_usd": None},
+        "registry": {"path": str(tmp_path / "reg")},
+    }
+    cfg_path.write_text(yaml.dump(cfg))
+
+    data_path = tmp_path / "data.jsonl"
+    data_path.write_text(
+        _json.dumps({"inputs": {"question": "q"}, "labels": {"answer": "a"}}) + "\n"
+    )
+    fake_path = tmp_path / "fake.json"
+    fake_path.write_text(_json.dumps({"responses": ["[[answer]]: a"]}))
+
+    env_backup = os.environ.copy()
+    os.environ["PROMPTLINE_FAKE_SCRIPT"] = str(fake_path)
+    try:
+        server_app = build_app_from_config(str(cfg_path))
+        with TestClient(server_app) as client:
+            resp = client.post(
+                "/runs",
+                json={"optimizer": "bootstrap", "data_path": str(data_path)},
+            )
+            assert resp.status_code == 400, resp.text
+            assert "calibrat" in resp.json()["detail"]
+            # The failed run is inspectable.
+            run_id = resp.json()["run_id"]
+            assert client.get(f"/runs/{run_id}").json()["status"] == "failed"
+    finally:
+        os.environ.clear()
+        os.environ.update(env_backup)

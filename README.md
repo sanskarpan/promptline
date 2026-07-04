@@ -84,7 +84,24 @@ Library-core with thin shells: CLI, TUI, and FastAPI server are thin layers over
                                         └──────────────────────┘    (ETag)
 ```
 
-Every stage refuses bad inputs: uncalibrated judges (when a certificate is required), undersized eval sets, contaminated dev/val splits.
+Every stage refuses bad inputs: `optimize` and `gate` refuse to score with an uncalibrated judge (missing or failed certificate → exit 2; `--allow-uncalibrated` overrides with a loud warning), undersized eval sets, contaminated dev/val splits.
+
+### The judge is the metric
+
+By default `optimize` and `gate` score candidates with the calibrated LLM judge configured under `judge:` in `promptline.yaml` (scores normalized to [0, 1], references read from `labels['reference']`):
+
+```yaml
+judge:
+  enabled: true           # false → fall back to exact-match on labels['answer']
+  criterion: helpfulness  # rubric criterion; also the certificate filename stem
+  # description: ""       # custom rubric text (default: built-in per criterion)
+  # scale_min: 1
+  # scale_max: 5
+  # certificate: ""       # default: <registry>/certificates/<criterion>.json
+  min_kappa: 0.6          # certificate must attest at least this kappa
+```
+
+`judge.certificate` is the primary certificate location (`gate.certificate` is still honored for back-compat). `promptline calibrate` writes the certificate exactly where `optimize`/`gate` look for it, so calibration genuinely unlocks the rest of the chain.
 
 ## Optimizers
 

@@ -41,8 +41,33 @@ class GateConfig(BaseModel):
     alpha: float = 0.05
     min_examples: int = 50
     #: Path to a judge calibration certificate JSON; empty = not required.
+    #: Back-compat only — prefer ``judge.certificate``, which is the primary
+    #: location.  ``GateSettings.from_config`` falls back to
+    #: ``judge.certificate`` when this is empty.
     certificate: str = ""
     #: Minimum kappa the certificate must attest when one is required.
+    min_kappa: float = 0.6
+
+
+class JudgeConfig(BaseModel):
+    """LLM-judge metric configuration (the default optimization/gate metric)."""
+
+    #: Rubric criterion name (also the certificate filename stem).
+    criterion: str = "helpfulness"
+    #: Rubric description; empty = use the built-in default for *criterion*.
+    description: str = ""
+    #: Integer rubric scale bounds.
+    scale_min: int = 1
+    scale_max: int = 5
+    #: When true (default), optimize/gate score with the calibrated judge;
+    #: when false they fall back to the exact-match metric.
+    enabled: bool = True
+    #: Path to the calibration certificate JSON.  Empty = the default
+    #: ``<registry>/certificates/<criterion>.json`` written by
+    #: ``promptline calibrate``.  This is the primary certificate location;
+    #: ``gate.certificate`` is honored for back-compat when set.
+    certificate: str = ""
+    #: Minimum quadratic-weighted kappa the certificate must attest.
     min_kappa: float = 0.6
 
 
@@ -60,6 +85,7 @@ class PromptlineConfig(BaseModel):
     models: ModelsConfig = Field(default_factory=ModelsConfig)
     dataset: DatasetConfig = Field(default_factory=DatasetConfig)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
+    judge: JudgeConfig = Field(default_factory=JudgeConfig)
     gate: GateConfig = Field(default_factory=GateConfig)
     registry: RegistryConfig = Field(default_factory=RegistryConfig)
 
@@ -114,6 +140,14 @@ dataset:
 budget:
   max_rollouts: 200
   # max_cost_usd: 5.0  # uncomment to add a USD cap
+
+judge:
+  # The calibrated LLM judge is the default optimize/gate metric.
+  # Set enabled: false to fall back to exact-match on labels['answer'].
+  enabled: true
+  criterion: helpfulness
+  # certificate: ""  # default: <registry>/certificates/<criterion>.json
+  min_kappa: 0.6     # certificate must attest at least this kappa
 
 gate:
   alpha: 0.05       # significance level for statistical gating

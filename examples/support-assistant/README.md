@@ -55,13 +55,17 @@ This scores every holdout gold response with the `anthropic/claude-3.5-haiku` ru
 Certificate saved to .promptline/certificates/helpfulness.json
 ```
 
-For context, GPT-4 as an MT-Bench judge reaches ~80% agreement with humans (arXiv 2306.05685); quadratic-weighted κ ≥ 0.6 is "substantial" agreement. If calibration fails, the certificate is still saved (with `passed: false`) so you can inspect the confusion matrix, but the exit code is 1 — don't optimize against an uncalibrated judge.
+For context, GPT-4 as an MT-Bench judge reaches ~80% agreement with humans (arXiv 2306.05685); quadratic-weighted κ ≥ 0.6 is "substantial" agreement. If calibration fails, the certificate is still saved (with `passed: false`) so you can inspect the confusion matrix, but the exit code is 1 — and `optimize`/`gate` will *refuse to run* against a missing or failed certificate, so this step genuinely unlocks the rest of the chain.
+
+The demo config points `judge.certificate` at exactly the path this command writes (`.promptline/certificates/helpfulness.json`), so nothing else needs wiring.
 
 ## Step 3 — optimize with GEPA
 
 ```bash
 promptline optimize --optimizer gepa --data train.jsonl
 ```
+
+Candidates are scored by the calibrated helpfulness judge from step 2 — look for the `Metric: judge(helpfulness)` line at startup. Without a passing certificate this exits with code 2 (`--allow-uncalibrated` bypasses the check, loudly, if you really must).
 
 Watch it live from another terminal — the run id is printed at start:
 
@@ -117,14 +121,19 @@ Everything above can be rehearsed offline with bundled fixtures and a scripted f
 promptline demo setup --offline --dir /tmp/promptline-demo
 cd /tmp/promptline-demo
 
-# Point the CLI at a fake-response script instead of OpenRouter
+# Point the CLI at a fake-response script instead of OpenRouter:
+# keyed rule answers judge prompts with a score, everything else with an answer.
 cat > fake.json <<'EOF'
-{"responses": ["[[reasoning]]: fine\n[[score]]: 3", "[[answer]]: Sure — here is how to do that."]}
+{"keyed": [{"contains": "impartial expert evaluator", "response": "[[reasoning]]: fine\n[[score]]: 3"}],
+ "responses": ["[[answer]]: Sure — here is how to do that."]}
 EOF
 export PROMPTLINE_FAKE_SCRIPT=$PWD/fake.json
 
 promptline calibrate --gold gold.jsonl --label-min 0 --label-max 4   # runs; κ will be low (constant judge)
-promptline optimize --optimizer bootstrap --data train.jsonl
+# The constant fake judge fails calibration, so optimize refuses to run
+# against it — exactly the production behavior. For the offline rehearsal,
+# bypass the certificate check explicitly:
+promptline optimize --optimizer bootstrap --data train.jsonl --allow-uncalibrated
 promptline registry list
 ```
 

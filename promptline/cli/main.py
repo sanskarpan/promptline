@@ -24,9 +24,19 @@ from promptline.core.llm import FakeLLMClient, LLMError
 from promptline.core.program import ModelConfig, PromptProgram
 from promptline.core.types import Candidate, Example, ModuleState
 from promptline.data.dataset import Dataset
-from promptline.eval.harness import Budget, EvalHarness, MetricResult
-from promptline.judge.calibrator import Calibrator, UncalibratedJudgeError
+from promptline.eval.harness import Budget, EvalHarness
+from promptline.judge.calibrator import (
+    Calibrator,
+    UncalibratedJudgeError,
+    require_certificate,
+)
 from promptline.judge.judge import PointwiseJudge, RubricCriterion
+from promptline.judge.metric_factory import (
+    DEFAULT_RUBRICS,
+    default_metric,  # noqa: F401 — re-exported: the exact-match fallback metric
+    resolve_certificate_path,
+    resolve_metric,
+)
 from promptline.optimizers.base import RunRecorder
 from promptline.registry.registry import PromptRegistry
 
@@ -106,17 +116,6 @@ def load_examples_jsonl(path: str) -> list[Example]:
             )
         )
     return examples
-
-
-def default_metric(example: Example, prediction) -> MetricResult:  # type: ignore[type-arg]
-    """Exact-match on ``labels['answer']`` vs ``outputs.get('answer')``.
-
-    TODO: replace with an LLM-judge metric in a later task.
-    """
-    expected = example.labels.get("answer", "")
-    got = prediction.outputs.get("answer", "")
-    score = 1.0 if got.strip() == expected.strip() else 0.0
-    return MetricResult(score=score, feedback=f"expected={expected!r} got={got!r}")
 
 
 def _build_client(cfg: PromptlineConfig):  # type: ignore[return]
@@ -217,6 +216,11 @@ def _dataset_hash(path: str) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
 
 
+def _metric_label(cfg: PromptlineConfig, mode: str) -> str:
+    """Human-readable metric description, e.g. ``judge(helpfulness)``."""
+    return f"judge({cfg.judge.criterion})" if mode == "judge" else mode
+
+
 def _build_run_coro(
     cfg: PromptlineConfig,
     optimizer_choice: OptimizerChoice,
@@ -227,14 +231,21 @@ def _build_run_coro(
     run_id: str,
     registry: PromptRegistry,
     resume: bool = False,
-):
-    """Return a coroutine that runs one optimization pass and registers the result.
+    allow_uncalibrated: bool = False,
+) -> tuple:
+    """Return ``(coroutine, metric_label)`` for one optimization pass.
 
     All synchronous setup (loading examples, constructing the LLM client and
-    harness, building the optimizer) is performed here so that errors surface
-    immediately to the caller.  On the server side :class:`RunManager` wraps
-    this in a try/except and converts synchronous failures into
-    ``RunStartError`` → HTTP 400 rather than leaving a zombie run.
+    harness, resolving the metric, checking the judge certificate, building
+    the optimizer) is performed here so that errors surface immediately to the
+    caller.  On the server side :class:`RunManager` wraps this in a try/except
+    and converts synchronous failures into ``RunStartError`` → HTTP 400 rather
+    than leaving a zombie run.
+
+    When the resolved metric is the LLM judge, a passing calibration
+    certificate is required (``cfg.judge.certificate`` or the default
+    ``<registry>/certificates/<criterion>.json``); a missing/weak certificate
+    raises :class:`UncalibratedJudgeError` unless *allow_uncalibrated* is set.
 
     NOTE: when called from the gate sub-path, pass
     ``budget=Budget(max_rollouts=None, max_cost_usd=cfg.budget.max_cost_usd)``
@@ -245,6 +256,11 @@ def _build_run_coro(
     program, seed = _build_program_and_seed(cfg)
     client = _build_client(cfg)
     harness = EvalHarness(client=client, cfg=_model_config(cfg))
+    metric, metric_mode = resolve_metric(cfg, client)
+    if metric_mode == "judge" and not allow_uncalibrated:
+        # The spec's promise: optimization refuses to run against an
+        # uncalibrated judge.
+        require_certificate(resolve_certificate_path(cfg), cfg.judge.min_kappa)
     opt = _build_optimizer(optimizer_choice, run_dir=run_dir, resume=resume)
 
     async def _run():
@@ -252,7 +268,7 @@ def _build_run_coro(
             program=program,
             seed=seed,
             trainset=examples,
-            metric=default_metric,
+            metric=metric,
             budget=budget,
             harness=harness,
             emit=emit,
@@ -268,7 +284,7 @@ def _build_run_coro(
             )
         return result
 
-    return _run()
+    return _run(), _metric_label(cfg, metric_mode)
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +348,12 @@ def optimize(
         "--resume",
         help="Resume a previous run by id (gepa only).",
     ),
+    allow_uncalibrated: bool = typer.Option(
+        False,
+        "--allow-uncalibrated",
+        help="Run with the judge metric even without a passing calibration "
+        "certificate (NOT recommended).",
+    ),
 ) -> None:
     """Run a prompt optimization pass and print the best candidate."""
 
@@ -387,7 +409,7 @@ def optimize(
 
     # ---- Build run coroutine (synchronous setup; errors → exit 1/2) ---------
     try:
-        coro = _build_run_coro(
+        coro, metric_label = _build_run_coro(
             cfg,
             optimizer,
             data_path,
@@ -397,19 +419,35 @@ def optimize(
             run_id,
             registry,
             resume=resume is not None,
+            allow_uncalibrated=allow_uncalibrated,
         )
     except ValueError as exc:
         # _build_optimizer raises ValueError for invalid --resume combinations.
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
+    except UncalibratedJudgeError as exc:
+        console.print(
+            f"[red]judge not calibrated[/red] — {exc}\n"
+            "Run: [bold]promptline calibrate --gold <gold.jsonl>[/bold] "
+            "(or set judge.enabled: false, or pass --allow-uncalibrated)."
+        )
+        raise typer.Exit(2) from exc
     except LLMError as exc:
         typer.secho(f"LLM error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
+
+    if allow_uncalibrated and metric_label.startswith("judge"):
+        console.print(
+            "[bold yellow]WARNING:[/bold yellow] --allow-uncalibrated — "
+            "optimizing against a judge with NO valid calibration "
+            "certificate. Scores may not track human judgement."
+        )
 
     console.print(
         f"\nRunning [bold]{optimizer.value}[/bold] optimizer "
         f"on {len(examples_preview)} examples …"
     )
+    console.print(f"[bold]Metric:[/bold] {metric_label}")
     console.print(f"[bold]Run id:[/bold] {run_id}")
 
     try:
@@ -460,30 +498,6 @@ def optimize(
 # ---------------------------------------------------------------------------
 # calibrate
 # ---------------------------------------------------------------------------
-
-#: Default rubric descriptions per criterion name.
-DEFAULT_RUBRICS: dict[str, str] = {
-    "helpfulness": (
-        "How well the response addresses the user's request and provides "
-        "actionable, relevant information."
-    ),
-    "correctness": (
-        "Whether the response is factually accurate and free of errors or "
-        "unsupported claims."
-    ),
-    "coherence": (
-        "Whether the response is well-structured, consistent, and easy to follow."
-    ),
-    "complexity": (
-        "The intellectual depth required to write the response "
-        "(domain expertise vs. basic language competency)."
-    ),
-    "verbosity": (
-        "Whether the amount of detail is appropriate for the request — "
-        "neither too terse nor padded."
-    ),
-}
-
 
 def _load_gold_dataset(gold: str, criterion: str, n: int | None) -> Dataset:
     """Load the gold dataset from a JSONL path or the HelpSteer2 HF loader."""
@@ -646,8 +660,9 @@ def gate(
 ) -> None:
     """Statistically gate candidates against the active prompt.
 
-    Scores with the exact-match default metric (the LLM-judge metric arrives
-    with the demo pipeline).  Exit codes: 0 promote, 1 reject, 2 refusal.
+    Scores with the calibrated LLM-judge metric when ``judge.enabled`` (the
+    default; requires a passing calibration certificate), otherwise with the
+    exact-match metric.  Exit codes: 0 promote, 1 reject, 2 refusal.
     """
     from promptline.registry.gate import GateSettings, run_gate
 
@@ -686,7 +701,13 @@ def gate(
         typer.secho(f"LLM error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
     harness = EvalHarness(client=client, cfg=_model_config(cfg))
-    settings = GateSettings.from_config(cfg.gate)
+    metric, metric_mode = resolve_metric(cfg, client)
+    settings = GateSettings.from_config(cfg.gate, cfg.judge)
+    if metric_mode == "judge" and settings.require_certificate_path is None:
+        # Judge metric always requires a certificate: fall back to the
+        # default location written by `promptline calibrate`.
+        settings.require_certificate_path = resolve_certificate_path(cfg)
+        settings.min_kappa = cfg.judge.min_kappa
 
     # Gate runs are I/O-bounded by data size, not by optimizer rollout count.
     # The rollout cap is deliberately None; only the cost ceiling is honored.
@@ -697,6 +718,7 @@ def gate(
         f"[bold]{incumbent_id[:12]}[/bold] "
         f"({len(dev_examples)} dev / {len(val_examples)} val examples) …"
     )
+    console.print(f"[bold]Metric:[/bold] {_metric_label(cfg, metric_mode)}")
     try:
         report = asyncio.run(
             run_gate(
@@ -706,7 +728,7 @@ def gate(
                 dev=dev_examples,
                 val=val_examples,
                 harness=harness,
-                metric=default_metric,
+                metric=metric,
                 settings=settings,
                 budget=gate_budget,
             )
@@ -916,9 +938,11 @@ def build_app_from_config(config_path: str):
             max_cost_usd=cfg.budget.max_cost_usd,
         )
         run_id = run_dir.name  # RunManager sets run_dir = base_dir / run_id
-        return _build_run_coro(
+        coro, metric_label = _build_run_coro(
             cfg, choice, data_path, run_budget, emit, run_dir, run_id, registry
         )
+        console.print(f"[bold]Metric:[/bold] {metric_label} (run {run_id})")
+        return coro
 
     def gate_runner(payload: dict):
         from promptline.registry.gate import GateSettings, run_gate
@@ -944,6 +968,11 @@ def build_app_from_config(config_path: str):
             program, _ = _build_program_and_seed(cfg)
             client = _build_client(cfg)
             harness = EvalHarness(client=client, cfg=_model_config(cfg))
+            metric, metric_mode = resolve_metric(cfg, client)
+            settings = GateSettings.from_config(cfg.gate, cfg.judge)
+            if metric_mode == "judge" and settings.require_certificate_path is None:
+                settings.require_certificate_path = resolve_certificate_path(cfg)
+                settings.min_kappa = cfg.judge.min_kappa
             return await run_gate(
                 program=program,
                 incumbent=incumbent,
@@ -951,8 +980,8 @@ def build_app_from_config(config_path: str):
                 dev=dev_examples,
                 val=val_examples,
                 harness=harness,
-                metric=default_metric,
-                settings=GateSettings.from_config(cfg.gate),
+                metric=metric,
+                settings=settings,
             )
 
         return _run()

@@ -47,6 +47,8 @@ def _write_config(
     registry_path: str = ".promptline_test",
     max_rollouts: int = 20,
     min_examples: int = 50,
+    judge_enabled: bool = False,
+    judge_certificate: str = "",
 ) -> None:
     cfg = {
         "program": {
@@ -58,6 +60,8 @@ def _write_config(
         "models": {"task": "fake/model", "reflection": "", "judge": ""},
         "dataset": {"kind": "jsonl", "path": ""},
         "budget": {"max_rollouts": max_rollouts, "max_cost_usd": None},
+        # judge disabled by default: most tests exercise the exact-match path.
+        "judge": {"enabled": judge_enabled, "certificate": judge_certificate},
         "gate": {"alpha": 0.05, "min_examples": min_examples},
         "registry": {"path": registry_path},
     }
@@ -991,3 +995,197 @@ def test_gate_budget_max_cost_wired_through(tmp_path: Path) -> None:
     budget: Budget = captured["budget"]
     assert budget.max_rollouts is None, "rollout cap must be None for gate runs"
     assert budget.max_cost_usd == 7.5, "cost ceiling must come from config"
+
+
+# ---------------------------------------------------------------------------
+# Judge-as-metric wiring: certificate gating of optimization
+# ---------------------------------------------------------------------------
+
+
+def _write_cert(path: Path, kappa: float = 0.8, passed: bool = True) -> None:
+    from promptline.judge.calibrator import CalibrationCertificate
+
+    CalibrationCertificate(
+        judge_name="pointwise:fake/judge",
+        criterion="helpfulness",
+        kappa=kappa,
+        spearman=0.8,
+        n_holdout=20,
+        threshold=0.6,
+        passed=passed,
+        judge_candidate_id="cand",
+        created_at="2026-01-01T00:00:00+00:00",
+        confusion=[[1]],
+        binning="identity",
+    ).save(path)
+
+
+def _write_judge_fake_script(path: Path) -> None:
+    """Keyed script: judge calls get a score, everything else an answer."""
+    path.write_text(
+        json.dumps(
+            {
+                "keyed": [
+                    {
+                        "contains": "impartial expert evaluator",
+                        "response": "[[reasoning]]: ok\n[[score]]: 4",
+                    }
+                ],
+                "responses": ["[[answer]]: q0", "[[answer]]: q1", "[[answer]]: q2"],
+            }
+        )
+    )
+
+
+def _judge_optimize_args(cfg_path: Path, data_path: Path) -> list[str]:
+    return [
+        "optimize",
+        "--optimizer", "bootstrap",
+        "--config", str(cfg_path),
+        "--data", str(data_path),
+        "--budget", "10",
+    ]
+
+
+def test_optimize_judge_without_certificate_exits_2(tmp_path: Path) -> None:
+    """Judge metric + no calibration certificate → refusal (exit 2)."""
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    fake_path = tmp_path / "fake.json"
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"), judge_enabled=True)
+    _write_jsonl(data_path, _make_examples(3))
+    _write_judge_fake_script(fake_path)
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    result = runner.invoke(app, _judge_optimize_args(cfg_path, data_path), env=env)
+    assert result.exit_code == 2, result.output
+    assert "judge not calibrated" in result.output
+    assert "promptline calibrate" in result.output
+    assert "judge.enabled" in result.output
+
+
+def test_optimize_judge_with_failing_certificate_exits_2(tmp_path: Path) -> None:
+    """A saved-but-failed certificate must not unlock optimization."""
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    fake_path = tmp_path / "fake.json"
+    reg = tmp_path / "reg"
+    _write_config(cfg_path, registry_path=str(reg), judge_enabled=True)
+    _write_jsonl(data_path, _make_examples(3))
+    _write_judge_fake_script(fake_path)
+    _write_cert(reg / "certificates" / "helpfulness.json", kappa=0.2, passed=False)
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    result = runner.invoke(app, _judge_optimize_args(cfg_path, data_path), env=env)
+    assert result.exit_code == 2, result.output
+    assert "judge not calibrated" in result.output
+
+
+def test_optimize_judge_with_passing_certificate_runs(tmp_path: Path) -> None:
+    """Passing certificate at the default registry path unlocks optimize."""
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    fake_path = tmp_path / "fake.json"
+    reg = tmp_path / "reg"
+    _write_config(cfg_path, registry_path=str(reg), judge_enabled=True)
+    _write_jsonl(data_path, _make_examples(3))
+    _write_judge_fake_script(fake_path)
+    _write_cert(reg / "certificates" / "helpfulness.json")
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    result = runner.invoke(
+        app, _judge_optimize_args(cfg_path, data_path), env=env,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "judge(helpfulness)" in result.output
+
+
+def test_optimize_judge_explicit_certificate_path(tmp_path: Path) -> None:
+    """judge.certificate in config overrides the default registry location."""
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    fake_path = tmp_path / "fake.json"
+    cert_path = tmp_path / "elsewhere" / "cert.json"
+    _write_config(
+        cfg_path,
+        registry_path=str(tmp_path / "reg"),
+        judge_enabled=True,
+        judge_certificate=str(cert_path),
+    )
+    _write_jsonl(data_path, _make_examples(3))
+    _write_judge_fake_script(fake_path)
+    _write_cert(cert_path)
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    result = runner.invoke(
+        app, _judge_optimize_args(cfg_path, data_path), env=env,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_optimize_allow_uncalibrated_runs_with_warning(tmp_path: Path) -> None:
+    """--allow-uncalibrated bypasses the certificate check but warns loudly."""
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    fake_path = tmp_path / "fake.json"
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"), judge_enabled=True)
+    _write_jsonl(data_path, _make_examples(3))
+    _write_judge_fake_script(fake_path)
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    result = runner.invoke(
+        app,
+        [*_judge_optimize_args(cfg_path, data_path), "--allow-uncalibrated"],
+        env=env,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "WARNING" in result.output
+    assert "allow-uncalibrated" in result.output
+
+
+def test_optimize_exact_match_prints_metric_line(tmp_path: Path) -> None:
+    """judge.enabled: false → exact-match metric, no certificate needed."""
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    fake_path = tmp_path / "fake_script.json"
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
+    _write_jsonl(data_path, _make_examples(3))
+    _write_fake_script(fake_path, _make_fake_responses(3))
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    result = runner.invoke(
+        app, _judge_optimize_args(cfg_path, data_path), env=env,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "exact-match" in result.output
+
+
+def test_gate_judge_without_certificate_refuses(tmp_path: Path) -> None:
+    """Gate in judge mode without a certificate → refusal (exit 2)."""
+    cfg_path, registry_dir, dev_path, val_path, env = _write_gate_fixture(tmp_path)
+    registry = _seed_gate_registry(registry_dir)
+    registry.activate("main", "base-1")
+
+    import yaml as _yaml
+
+    raw = _yaml.safe_load(cfg_path.read_text())
+    raw["judge"] = {"enabled": True}
+    cfg_path.write_text(_yaml.dump(raw))
+
+    result = runner.invoke(
+        app,
+        [
+            "gate",
+            "--candidate", "good-1",
+            "--dev", str(dev_path),
+            "--val", str(val_path),
+            "--config", str(cfg_path),
+        ],
+        env=env,
+    )
+    assert result.exit_code == 2, result.output
+    assert "Gate refused to run" in result.output

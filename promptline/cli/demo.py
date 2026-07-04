@@ -102,6 +102,15 @@ budget:
   max_rollouts: 300
   max_cost_usd: 5.0
 
+judge:
+  # The calibrated helpfulness judge is the optimize/gate metric.
+  # `promptline calibrate` writes the certificate exactly where the
+  # optimizer expects it — calibration genuinely unlocks optimization.
+  enabled: true
+  criterion: helpfulness
+  certificate: .promptline/certificates/helpfulness.json
+  min_kappa: 0.6
+
 gate:
   alpha: 0.05
   min_examples: 50
@@ -205,9 +214,11 @@ def demo_setup(
             "export OPENROUTER_API_KEY=sk-or-...\n"
             "\n"
             "# 1. Calibrate the helpfulness judge against gold human labels\n"
+            "#    (writes the certificate that unlocks optimize/gate)\n"
             "promptline calibrate --gold gold.jsonl --label-min 0 --label-max 4\n"
             "\n"
-            "# 2. Optimize the seed support prompt with GEPA\n"
+            "# 2. Optimize the seed support prompt with GEPA "
+            "(judge-scored, certificate-gated)\n"
             "promptline optimize --optimizer gepa --data train.jsonl\n"
             "\n"
             "# 3. Gate the winner against the active baseline\n"

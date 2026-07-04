@@ -400,3 +400,24 @@ def test_candidate_gate_result_fields() -> None:
     )
     assert result.candidate_id == "c1"
     assert result.holm_significant is True
+
+
+def test_settings_from_config_prefers_gate_cert_falls_back_to_judge() -> None:
+    """gate.certificate wins when set; judge.certificate is the fallback."""
+    from promptline.core.config import GateConfig, JudgeConfig
+
+    judge = JudgeConfig(certificate="judge-cert.json", min_kappa=0.7)
+
+    # gate.certificate empty → judge.certificate + judge.min_kappa used.
+    settings = GateSettings.from_config(GateConfig(), judge)
+    assert settings.require_certificate_path == Path("judge-cert.json")
+    assert settings.min_kappa == 0.7
+
+    # gate.certificate set → back-compat: gate values win.
+    gate_cfg = GateConfig(certificate="gate-cert.json", min_kappa=0.65)
+    settings = GateSettings.from_config(gate_cfg, judge)
+    assert settings.require_certificate_path == Path("gate-cert.json")
+    assert settings.min_kappa == 0.65
+
+    # Neither set → no certificate requirement from config.
+    assert GateSettings.from_config(GateConfig(), JudgeConfig()).require_certificate_path is None
