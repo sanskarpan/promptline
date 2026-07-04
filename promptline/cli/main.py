@@ -943,8 +943,14 @@ def build_app_from_config(config_path: str):
 
         return _run()
 
+    # Serve the built dashboard when web/dist exists next to the repo root.
+    web_dist = Path(__file__).resolve().parents[2] / "web" / "dist"
     return create_app(
-        registry, run_manager, run_starter=run_starter, gate_runner=gate_runner
+        registry,
+        run_manager,
+        run_starter=run_starter,
+        gate_runner=gate_runner,
+        web_dist=web_dist,
     )
 
 

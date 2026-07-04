@@ -451,5 +451,59 @@ def test_server_run_registers_with_run_id_and_records_eval(tmp_path: Path) -> No
         os.environ.update(env_backup)
 
 
+# ---------------------------------------------------------------------------
+# Static dashboard mount
+# ---------------------------------------------------------------------------
+
+
+def _make_web_dist(tmp_path: Path) -> Path:
+    web_dist = tmp_path / "web_dist"
+    web_dist.mkdir()
+    (web_dist / "index.html").write_text("<html><body>PROMPTLINE</body></html>")
+    (web_dist / "app.js").write_text("console.log('promptline')")
+    return web_dist
+
+
+def test_web_dist_served_at_root_and_api_still_wins(tmp_path: Path) -> None:
+    registry = PromptRegistry(tmp_path / "registry")
+    run_manager = RunManager(tmp_path / "runs")
+    app = create_app(registry, run_manager, web_dist=_make_web_dist(tmp_path))
+    with TestClient(app) as client:
+        # Root serves the dashboard.
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "PROMPTLINE" in resp.text
+
+        # Real static assets are served.
+        assert client.get("/app.js").status_code == 200
+
+        # SPA fallback: unknown non-API path returns index.html.
+        resp = client.get("/lineage/some-run")
+        assert resp.status_code == 200
+        assert "PROMPTLINE" in resp.text
+
+        # API routes still win over the static mount.
+        assert client.get("/prompts/main/active").status_code == 404
+        assert client.get("/runs").json() == []
+        cand = _cand("p1")
+        registry.register(cand, "main")
+        registry.activate("main", "p1")
+        resp = client.get("/prompts/main/active")
+        assert resp.status_code == 200
+        assert resp.json()["prompt_id"] == "p1"
+
+
+def test_no_web_dist_keeps_plain_404_at_root(tmp_path: Path) -> None:
+    registry = PromptRegistry(tmp_path / "registry")
+    run_manager = RunManager(tmp_path / "runs")
+    # Directory without index.html → mount is skipped entirely.
+    empty = tmp_path / "empty_dist"
+    empty.mkdir()
+    app = create_app(registry, run_manager, web_dist=empty)
+    with TestClient(app) as client:
+        assert client.get("/").status_code == 404
+        assert client.get("/runs").json() == []
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))

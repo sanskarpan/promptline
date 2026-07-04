@@ -23,14 +23,35 @@ from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 from sse_starlette.sse import EventSourceResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from promptline.registry.registry import PromptRegistry
 from promptline.server.runs import RunManager, RunStartError
 
 #: Seconds between tail polls of a live run's events.jsonl.
 _TAIL_POLL_S = 0.2
+
+
+class _SPAStaticFiles(StaticFiles):
+    """StaticFiles that serves ``index.html`` for unknown paths (SPA routing).
+
+    Mounted at ``/`` *after* all API routes, so ``/runs`` etc. are still
+    handled by the API; only paths no route matched reach this app.
+    """
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
+        if response.status_code == 404:
+            return await super().get_response("index.html", scope)
+        return response
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +99,7 @@ def create_app(
     run_manager: RunManager,
     run_starter: Callable | None = None,
     gate_runner: Callable | None = None,
+    web_dist: Path | None = None,
 ) -> FastAPI:
     """Build the Promptline API.
 
@@ -93,6 +115,11 @@ def create_app(
     gate_runner:
         ``(payload: dict) -> GateReport | dict`` (may be async);
         ``POST /gate`` returns 400 when unset.
+    web_dist:
+        Directory holding the built dashboard (``web/dist``).  When it
+        contains an ``index.html`` it is mounted at ``/`` *after* the API
+        routes, so API paths always win; unknown paths fall back to
+        ``index.html`` (SPA routing).
     """
     app = FastAPI(title="promptline")
 
@@ -245,5 +272,10 @@ def create_app(
         for path in sorted(cert_dir.glob("*.json")):
             certs.append(json.loads(path.read_text()))
         return certs
+
+    # ---- Static dashboard (mounted last so API routes always win) --------------
+
+    if web_dist is not None and (web_dist / "index.html").exists():
+        app.mount("/", _SPAStaticFiles(directory=web_dist, html=True), name="web")
 
     return app
