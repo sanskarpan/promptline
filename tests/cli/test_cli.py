@@ -446,11 +446,14 @@ def test_calibrate_missing_gold_exits_nonzero(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_data_prepare_demo_exits_0() -> None:
-    """data prepare --demo must print the demo message and exit 0."""
-    result = runner.invoke(app, ["data", "prepare", "--demo"])
+def test_data_prepare_demo_forwards_to_demo_setup(tmp_path: Path) -> None:
+    """data prepare --demo must forward to `demo setup` and exit 0."""
+    workspace = tmp_path / "ws"
+    result = runner.invoke(
+        app, ["data", "prepare", "--demo", "--offline", "--dir", str(workspace)]
+    )
     assert result.exit_code == 0, result.output
-    assert "Demo data preparation" in result.output
+    assert (workspace / "promptline.yaml").exists()
 
 
 def test_data_prepare_no_flags_exits_0() -> None:

@@ -39,8 +39,12 @@ app = typer.Typer(
 )
 
 # ---------------------------------------------------------------------------
-# data sub-app
+# demo + data sub-apps
 # ---------------------------------------------------------------------------
+
+from promptline.cli.demo import demo_app, demo_setup  # noqa: E402
+
+app.add_typer(demo_app, name="demo")
 
 data_app = typer.Typer(name="data", help="Data preparation utilities.")
 app.add_typer(data_app, name="data")
@@ -49,13 +53,23 @@ app.add_typer(data_app, name="data")
 @data_app.command("prepare")
 def data_prepare(
     demo: bool = typer.Option(False, "--demo", help="Prepare demo data."),
+    dir: str = typer.Option(
+        "examples/support-assistant/workspace",
+        "--dir",
+        help="Workspace directory (forwarded to `demo setup`).",
+    ),
+    offline: bool = typer.Option(
+        False, "--offline", help="Use bundled fixtures (forwarded to `demo setup`)."
+    ),
 ) -> None:
-    """Prepare data for a Promptline pipeline."""
+    """Prepare data for a Promptline pipeline.
+
+    ``--demo`` is an alias that forwards to ``promptline demo setup``.
+    """
     if demo:
-        typer.echo(
-            "Demo data preparation arrives with the demo pipeline "
-            "(see examples/support-assistant)"
-        )
+        # Direct function call: pass explicit values (typer defaults are
+        # OptionInfo sentinels when bypassing the CLI layer).
+        demo_setup(dir=dir, offline=offline, gold_n=400, dev_n=150, val_n=150)
     raise typer.Exit(0)
 
 # ---------------------------------------------------------------------------
