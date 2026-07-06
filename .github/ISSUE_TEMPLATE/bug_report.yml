@@ -1,0 +1,45 @@
+name: Bug report
+description: Report something that isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to file a bug. Please fill in the sections below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, and what you expected instead.
+      placeholder: When I run `promptline optimize ...`, it ...
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Ideally the exact commands. A `PROMPTLINE_FAKE_SCRIPT` repro that needs no API key is ideal.
+      placeholder: |
+        1. promptline init
+        2. promptline optimize --optimizer gepa ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output / traceback
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Promptline version
+      description: Output of `promptline --version`
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, install method (pip / editable / clone)
+    validations:
+      required: true

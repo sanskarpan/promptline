@@ -1,5 +1,11 @@
 # PROMPTLINE
 
+[![CI](https://github.com/sanskarpan/promptline/actions/workflows/ci.yml/badge.svg)](https://github.com/sanskarpan/promptline/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
+[![Checked with pyright](https://img.shields.io/badge/types-pyright-yellow.svg)](https://github.com/microsoft/pyright)
+
 **Calibrate → Optimize → Gate → Serve.** Promptline is an open-source, pip-installable pipeline for automatic prompt optimization: it calibrates an LLM-as-judge against human labels (with a measurable agreement certificate), evolves your system prompt with from-scratch implementations of state-of-the-art optimizers (GEPA flagship), refuses to deploy anything that isn't a statistically significant improvement over the incumbent, and serves the active prompt from a versioned registry over HTTP. Existing tools are either optimizers that trust their metric blindly (DSPy, gepa, promptim, AdalFlow) or eval platforms that inspect judges but don't optimize (promptfoo, Braintrust, Weave) — no other open-source tool chains *calibrated judge → optimizer → statistical deploy gate*. Promptline is that chain.
 
 ## Before / after
