@@ -28,12 +28,46 @@ The demo starts from a deliberately mediocre seed and lets GEPA earn its keep:
 
 …and the gate only promotes it if the paired bootstrap CI on a held-out split excludes zero.
 
+## Installation
+
+### Install the published package
+
+For using Promptline as a tool or library. The PyPI distribution is
+**`promptline-opt`**; it imports as `promptline` (like `scikit-learn` → `sklearn`).
+
+```bash
+pip install "promptline-opt[data]"    # [data] pulls HF `datasets` for the loaders
+#   or: uv add "promptline-opt[data]"
+#   or without loaders: pip install promptline-opt
+
+export OPENROUTER_API_KEY=sk-or-...   # bring your own key → all major models
+promptline --version
+```
+
+The wheel ships the Python package, CLI, TUI, and FastAPI server. The React
+dashboard is **not** bundled — see [Dashboard](#dashboard-optional) below if you
+want the web UI.
+
+### From source (local development)
+
+For hacking on Promptline itself, or running the dashboard from a clone:
+
+```bash
+git clone https://github.com/sanskarpan/promptline.git
+cd promptline
+
+uv sync --all-extras --dev          # runtime + [data] + dev tools (pinned via uv.lock)
+uv run promptline --version
+
+make check                          # lint + format-check + pyright + pytest (the CI gate)
+```
+
+Common local targets (`make help` lists all): `make test`, `make web-build`,
+`make e2e`, `make live-smoke`.
+
 ## Quickstart
 
 ```bash
-pip install "promptline-opt[data]"    # imports as `import promptline`
-export OPENROUTER_API_KEY=sk-or-...   # bring your own key → all major models
-
 promptline demo setup                 # datasets + config (see examples/support-assistant/)
 cd examples/support-assistant/workspace
 
@@ -43,14 +77,17 @@ promptline gate --candidate <best_id> --dev dev.jsonl --val val.jsonl
 promptline serve                      # GET /prompts/support/active
 ```
 
+Prefix with `uv run` when working from a clone (`uv run promptline demo setup`, …).
+
 No key? `promptline demo setup --offline` plus the `PROMPTLINE_FAKE_SCRIPT` fake client rehearses the whole pipeline deterministically — see [examples/support-assistant/README.md](examples/support-assistant/README.md).
 
 ### Dashboard (optional)
 
-`promptline serve` hosts the React dashboard when it has been built (a cloned repo does not ship `web/dist`):
+The dashboard is only available from a source checkout (the published wheel does
+not include `web/dist`). Build it, then `serve` hosts it automatically:
 
 ```bash
-cd web && npm install && npm run build   # then: promptline serve
+cd web && npm install && npm run build   # then, from the workspace: promptline serve
 ```
 
 Without the build, `serve` prints a warning and the API (control + serving planes) works as usual.
