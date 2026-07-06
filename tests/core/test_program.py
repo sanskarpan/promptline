@@ -313,3 +313,46 @@ async def test_two_module_cost_accumulated() -> None:
     pred = await prog.run(example, candidate, fake, _cfg())
 
     assert pred.cost_usd == pytest.approx(0.03)
+
+
+# ---------------------------------------------------------------------------
+# run() — module whose declared inputs are never produced → wiring failure
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_module_with_no_present_inputs_fails_without_llm_call() -> None:
+    """Module 2's declared input is never produced → Prediction.failed, no doomed LLM call."""
+    sig1 = Signature(
+        instruction="Extract city.",
+        inputs=[Field("query")],
+        outputs=[Field("city")],
+    )
+    sig2 = Signature(
+        instruction="Summarise the topic.",
+        inputs=[Field("topic")],  # never produced by module 1
+        outputs=[Field("summary")],
+    )
+    prog = PromptProgram(
+        modules=[
+            Module(name="extract", signature=sig1),
+            Module(name="summarise", signature=sig2),
+        ]
+    )
+    candidate = Candidate.seed(
+        modules={
+            "extract": ModuleState(instruction="Extract city."),
+            "summarise": ModuleState(instruction="Summarise the topic."),
+        }
+    )
+    example = Example(inputs={"query": "Where is Paris?"})
+
+    # Only one scripted reply: module 2 must NOT reach the LLM.
+    fake = FakeLLMClient(script=["[[city]]: Paris"])
+    pred = await prog.run(example, candidate, fake, _cfg())
+
+    assert pred.failed is True
+    assert "summarise" in pred.failure_reason
+    assert "no declared inputs" in pred.failure_reason
+    # Module 1 called the LLM once; module 2 did not.
+    assert len(fake.calls) == 1

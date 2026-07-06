@@ -148,10 +148,16 @@ class GEPA(Optimizer):
             if prediction.failed:
                 mr = MetricResult(score=0.0, feedback=prediction.failure_reason)
             else:
-                raw = metric(example, prediction)
-                if inspect.isawaitable(raw):
-                    raw = await raw
-                mr = raw
+                # The metric may raise (realistic for an LLM-judge metric doing
+                # network calls); treat a raising metric as a 0.0 score so it
+                # never crashes the GEPA run.
+                try:
+                    raw = metric(example, prediction)
+                    if inspect.isawaitable(raw):
+                        raw = await raw
+                    mr = raw
+                except Exception as exc:
+                    mr = MetricResult(score=0.0, feedback=f"metric error: {exc}")
             results.append((example, prediction, mr))
         return results
 
@@ -447,6 +453,7 @@ class GEPA(Optimizer):
 
         # Repair partial Pareto vectors before main loop (resume only).
         if resumed_state is not None:
+            repaired_any = False
             for cid in list(state.partial):
                 if not budget.exhausted:
                     await self._full_eval(
@@ -459,6 +466,12 @@ class GEPA(Optimizer):
                         harness,
                         _emit,
                     )
+                    repaired_any = True
+            # Persist the repaired (full-length) vectors and the cleared partial
+            # set to disk; otherwise the stale 0-padded vector re-loads on every
+            # subsequent resume (bug 2).
+            if repaired_any:
+                self._checkpoint(state, budget)
 
         # ----------------------------------------------------------------
         # Main loop

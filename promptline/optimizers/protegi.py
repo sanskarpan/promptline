@@ -444,6 +444,12 @@ class ProTeGi(Optimizer):
                 all_scores[c.id] = _acc_mean(c)
             # else: never evaluated → omit from scores
 
+        # Guarantee the returned best always has a score entry (0.0 fallback when
+        # it was never evaluated, e.g. budget=0) so callers never KeyError on
+        # scores[best.id], mirroring MIPRO's contract.
+        if best.id not in all_scores:
+            all_scores[best.id] = 0.0
+
         finished_payload: dict = {
             "optimizer": self.name,
             "best_id": best.id,

@@ -31,7 +31,13 @@ class Signature:
         return "\n".join(lines)
 
     def parse_output(self, text: str) -> dict[str, str] | None:
-        matches = re.findall(r"\[\[(\w+)\]\]:\s*(.*?)(?=\[\[|\Z)", text, re.DOTALL)
+        # A value ends only at the start of a *field marker* ([[name]]:) or at
+        # end-of-text — never at a bare "[[" that is part of the value itself
+        # (code, markdown, math), which would silently truncate it. Undeclared
+        # markers still act as boundaries (and are dropped below), preserving
+        # the existing "drop unknown sections" behaviour.
+        pattern = r"\[\[(\w+)\]\]:\s*(.*?)(?=\[\[\w+\]\]:|\Z)"
+        matches = re.findall(pattern, text, re.DOTALL)
         if matches:
             declared = {f.name for f in self.outputs}
             parsed = {k: v.strip() for k, v in matches if k in declared}

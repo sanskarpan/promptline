@@ -209,6 +209,15 @@ async def test_budget_early_stop() -> None:
     assert seed.id in result.scores
 
 
+async def test_protegi_best_in_scores_with_zero_budget() -> None:
+    """Bug 3: with Budget(max_rollouts=0) best.id must still be in scores."""
+    client = _client(f"Answer the question. {MARKER} sources.")
+    result, _seed = await _run(client, budget=Budget(max_rollouts=0))
+
+    assert result.best.id in result.scores
+    assert result.scores[result.best.id] == 0.0
+
+
 # ---------------------------------------------------------------------------
 # Events + determinism
 # ---------------------------------------------------------------------------

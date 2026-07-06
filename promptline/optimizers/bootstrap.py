@@ -80,9 +80,14 @@ async def collect_demo_pool(
         if prediction.failed:
             continue
 
-        raw = metric(example, prediction)
-        if inspect.isawaitable(raw):
-            raw = await raw
+        # The metric may raise (e.g. an LLM-judge doing network calls); treat a
+        # raising metric as a non-passing example rather than crashing.
+        try:
+            raw = metric(example, prediction)
+            if inspect.isawaitable(raw):
+                raw = await raw
+        except Exception:
+            continue
 
         if raw.score >= threshold:
             passed += 1
@@ -198,11 +203,16 @@ class BootstrapFewShot(Optimizer):
         scores: dict[str, float] = {seed.id: seed_score}
 
         # Evaluate the augmented candidate on the collection set if budget allows,
-        # and record its true mean score under best.id.  If budget is already
-        # exhausted, omit best.id from scores rather than recording a stale value.
+        # and record its true mean score under best.id.
         if not budget.exhausted:
             report = await harness.evaluate(program, best, shuffled, metric, budget)
             scores[best.id] = report.mean_score
+
+        # Guarantee best.id always has a score entry (0.0 fallback when the
+        # candidate could not be evaluated) so callers can look it up without a
+        # KeyError, mirroring MIPRO's contract.
+        if best.id not in scores:
+            scores[best.id] = 0.0
 
         finished_payload: dict = {"optimizer": self.name, "best_id": best.id}
         if best.id in scores:
@@ -304,9 +314,14 @@ class BootstrapRandomSearch(Optimizer):
             if prediction.failed:
                 continue
 
-            raw = metric(example, prediction)
-            if inspect.isawaitable(raw):
-                raw = await raw
+            # Tolerate a raising metric (e.g. LLM judge network error) — skip
+            # the example rather than crash the search.
+            try:
+                raw = metric(example, prediction)
+                if inspect.isawaitable(raw):
+                    raw = await raw
+            except Exception:
+                continue
 
             if raw.score >= self.threshold:
                 # Collect from first module trace.

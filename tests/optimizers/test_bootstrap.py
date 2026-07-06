@@ -394,6 +394,59 @@ async def test_bootstrap_tolerates_llm_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_bootstrap_tolerates_metric_exception() -> None:
+    """BootstrapFewShot must tolerate a metric that raises on some examples.
+
+    ``collect_demo_pool`` calls the metric directly (outside the harness); a
+    raising metric there must be caught and the example skipped, not crash the
+    optimizer.
+    """
+    program = _program()
+    seed = _seed(program)
+    FAIL_Q = "METRIC_CRASH"
+
+    def metric(example: Example, prediction) -> MetricResult:  # type: ignore[type-arg]
+        if example.inputs["question"] == FAIL_Q:
+            raise RuntimeError("judge network error")
+        return MetricResult(score=1.0)
+
+    client = _fake_client_single_answer("Paris")
+    harness = EvalHarness(client=client, cfg=_model_cfg())
+    budget = Budget(max_rollouts=50)
+
+    examples = [Example(inputs={"question": FAIL_Q}, labels={"answer": "Paris"})] + [
+        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(4)
+    ]
+
+    # max_demos high enough that every example is attempted (crash example hit).
+    opt = BootstrapFewShot(max_demos=10, threshold=1.0, rng_seed=0)
+    result = await opt.optimize(program, seed, examples, metric, budget, harness)
+
+    assert result.best is not None
+    first_mod = program.modules[0].name
+    demos = result.best.modules[first_mod].demos
+    # The four non-crashing examples became demos; the crashing one was skipped.
+    assert len(demos) == 4
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_best_in_scores_with_zero_budget() -> None:
+    """Bug 3: with Budget(max_rollouts=0) best.id must still be in scores."""
+    program = _program()
+    seed = _seed(program)
+    client = _fake_client_single_answer("Paris")
+    harness = EvalHarness(client=client, cfg=_model_cfg())
+
+    examples = [Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(4)]
+
+    opt = BootstrapFewShot(max_demos=4, threshold=1.0, rng_seed=0)
+    result = await opt.optimize(program, seed, examples, _exact_metric("Paris"), Budget(0), harness)
+
+    assert result.best.id in result.scores
+    assert result.scores[result.best.id] == 0.0
+
+
+@pytest.mark.asyncio
 async def test_bootstrap_rs_tolerates_llm_error() -> None:
     """BootstrapRandomSearch must tolerate LLMError during demo collection."""
     program = _program()
@@ -464,7 +517,12 @@ async def test_bootstrap_score_semantics() -> None:
 
 @pytest.mark.asyncio
 async def test_bootstrap_score_semantics_budget_exhausted() -> None:
-    """When budget is exhausted after collection, scores[best.id] must be absent."""
+    """When budget is exhausted after collection, best.id gets a 0.0 fallback score.
+
+    The augmented candidate cannot be evaluated (no budget left), so rather than
+    recording a stale value its score defaults to 0.0 — but best.id must still be
+    present so callers never KeyError on ``scores[best.id]`` (bug 3).
+    """
     program = _program()
     seed = _seed(program)
     client = _fake_client_single_answer("Paris")
@@ -481,10 +539,9 @@ async def test_bootstrap_score_semantics_budget_exhausted() -> None:
     # seed.id should be in scores.
     assert seed.id in result.scores
 
-    # best.id should NOT be in scores since budget is exhausted.
-    assert result.best.id not in result.scores, (
-        "best.id must NOT be in scores when budget is exhausted after collection"
-    )
+    # best.id must be present (0.0 fallback) since the candidate was not evaluated.
+    assert result.best.id in result.scores
+    assert result.scores[result.best.id] == 0.0
 
 
 # ---------------------------------------------------------------------------

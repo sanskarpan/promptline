@@ -170,11 +170,16 @@ class PromptProgram:
                 messages.append(Message(role="assistant", content=demo_asst))
 
             # Real user turn: render declared input fields from current state.
-            real_user = "\n".join(
-                f"{f.name}: {current_inputs[f.name]}"
-                for f in sig.inputs
-                if f.name in current_inputs
-            )
+            present_inputs = [f for f in sig.inputs if f.name in current_inputs]
+            # Wiring failure: a module declares inputs but none were produced by
+            # an upstream module / the example. Do not make a doomed LLM call.
+            if sig.inputs and not present_inputs:
+                return Prediction.failure(
+                    f"module '{module.name}' received no declared inputs",
+                    traces,
+                    total_cost,
+                )
+            real_user = "\n".join(f"{f.name}: {current_inputs[f.name]}" for f in present_inputs)
             messages.append(Message(role="user", content=real_user))
 
             # ---- First LLM call ------------------------------------------

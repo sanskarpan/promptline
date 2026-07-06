@@ -120,7 +120,13 @@ class OpenRouterClient:
                 if resp.status_code == 200:
                     try:
                         data = resp.json()
-                        text: str = data["choices"][0]["message"]["content"]
+                        content = data["choices"][0]["message"].get("content")
+                        if content is None:
+                            raise LLMError(
+                                "OpenRouter returned null content "
+                                "(content-filtered or tool-call response with no text)"
+                            )
+                        text: str = content
                     except (_json.JSONDecodeError, KeyError, IndexError) as exc:
                         raise LLMError(f"Malformed response from OpenRouter: {exc}") from exc
                     usage: dict = data.get("usage", {})

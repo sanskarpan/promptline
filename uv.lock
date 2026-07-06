@@ -1234,7 +1234,7 @@ wheels = [
 ]
 
 [[package]]
-name = "promptline"
+name = "promptline-opt"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

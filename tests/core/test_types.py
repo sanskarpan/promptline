@@ -117,3 +117,39 @@ def test_parse_output_unknown_extra_section_dropped():
     )
     result = sig.parse_output("[[answer]]: Paris\n[[confidence]]: high\n[[bogus]]: extra")
     assert result == {"answer": "Paris", "confidence": "high"}
+
+
+# Fix 1: [[ inside a value must not truncate the value
+def test_parse_output_value_with_double_brackets_preserved():
+    """A value legitimately containing [[...]] (no field-marker colon) is kept in full."""
+    sig = Signature(
+        instruction="X",
+        inputs=[Field("q", "question")],
+        outputs=[Field("answer", "the answer")],
+    )
+    result = sig.parse_output("[[answer]]: use [[brackets]] here")
+    assert result == {"answer": "use [[brackets]] here"}
+
+
+def test_parse_output_value_with_double_brackets_multi_field_preserved():
+    """[[ inside a value is preserved even in a multi-field parse."""
+    sig = Signature(
+        instruction="X",
+        inputs=[Field("q", "question")],
+        outputs=[Field("answer", "the answer"), Field("confidence", "confidence score")],
+    )
+    text = "[[answer]]: use [[brackets]] here\n[[confidence]]: high"
+    result = sig.parse_output(text)
+    assert result == {"answer": "use [[brackets]] here", "confidence": "high"}
+
+
+def test_parse_output_still_splits_on_declared_field_marker():
+    """A value that contains another declared field marker ([[name]]:) still splits."""
+    sig = Signature(
+        instruction="X",
+        inputs=[Field("q", "question")],
+        outputs=[Field("answer", "the answer"), Field("confidence", "confidence score")],
+    )
+    text = "[[answer]]: see [[confidence]]: high"
+    result = sig.parse_output(text)
+    assert result == {"answer": "see", "confidence": "high"}

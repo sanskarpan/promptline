@@ -270,6 +270,44 @@ async def test_pairwise_robust_verdict_parsing() -> None:
     assert verdict.winner == "A"
 
 
+# ---------------------------------------------------------------------------
+# parse_verdict robustness (Bug 2: article "a"/"b" must not be a verdict)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_verdict_prefers_explicit_tie_over_article_a() -> None:
+    """'it is a tie' must parse as TIE, not the article 'a' → 'A'."""
+    assert PairwiseJudge.parse_verdict("it is a tie") == "TIE"
+
+
+def test_parse_verdict_uppercase_verdict_token() -> None:
+    assert PairwiseJudge.parse_verdict("Overall: A") == "A"
+    assert PairwiseJudge.parse_verdict("Overall: B") == "B"
+    assert PairwiseJudge.parse_verdict("[[verdict]]: TIE") == "TIE"
+
+
+def test_parse_verdict_lowercase_prose_not_misread() -> None:
+    """Lowercase prose 'b is better' must not be misread as a B verdict."""
+    assert PairwiseJudge.parse_verdict("b is better") is None
+    assert PairwiseJudge.parse_verdict("a is better") is None
+
+
+def test_parse_verdict_field_content_still_parses() -> None:
+    """The [[verdict]] field content 'A'/'B'/'TIE' still parses correctly."""
+    assert PairwiseJudge.parse_verdict("A") == "A"
+    assert PairwiseJudge.parse_verdict("B") == "B"
+    assert PairwiseJudge.parse_verdict("TIE") == "TIE"
+    assert PairwiseJudge.parse_verdict("tie") == "TIE"
+
+
+async def test_pairwise_a_tie_not_biased_to_a() -> None:
+    """Both orderings say 'a tie' → TIE, not A (article bias regression)."""
+    judge = PairwiseJudge(criterion=PAIR_CRITERION, judge_model="fake/judge")
+    client = FakeLLMClient(script=[_verdict("it is a tie"), _verdict("it is a tie")])
+    verdict = await judge.compare(RECORD, "resp-a", "resp-b", client)
+    assert verdict.winner == "TIE"
+
+
 async def test_pairwise_unparseable_verdict_raises() -> None:
     judge = PairwiseJudge(criterion=PAIR_CRITERION, judge_model="fake/judge")
     client = FakeLLMClient(script=[_verdict("no verdict here"), _verdict("still none")])

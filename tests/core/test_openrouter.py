@@ -267,3 +267,33 @@ async def test_empty_choices_list_raises_llm_error() -> None:
         client = OpenRouterClient(api_key="test-key")
         with pytest.raises(LLMError, match="[Mm]alformed"):
             await client.complete(_make_call())
+
+
+@pytest.mark.asyncio
+async def test_null_content_raises_llm_error() -> None:
+    """A 200 with content:null (content-filtered / tool-call) → LLMError, not ValidationError."""
+    with respx.mock:
+        respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+            return_value=httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": None}}], "usage": {}},
+            )
+        )
+        client = OpenRouterClient(api_key="test-key")
+        with pytest.raises(LLMError):
+            await client.complete(_make_call())
+
+
+@pytest.mark.asyncio
+async def test_missing_content_key_raises_llm_error() -> None:
+    """A 200 whose message has no content key → LLMError."""
+    with respx.mock:
+        respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+            return_value=httpx.Response(
+                200,
+                json={"choices": [{"message": {}}], "usage": {}},
+            )
+        )
+        client = OpenRouterClient(api_key="test-key")
+        with pytest.raises(LLMError):
+            await client.complete(_make_call())

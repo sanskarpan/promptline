@@ -313,6 +313,57 @@ async def test_declared_label_range_differs_from_observed() -> None:
     assert cert_with_range.label_max == 2.0
 
 
+# ---------------------------------------------------------------------------
+# Confusion-matrix well-formedness when label_range excludes observed labels
+# (Bug 1: human_binned must be clamped like judge_binned)
+# ---------------------------------------------------------------------------
+
+
+def _assert_wellformed_diagonal(cert: CalibrationCertificate, n: int, size: int = 3) -> None:
+    """Confusion is size×size, non-negative, sums to n, and is diagonal."""
+    assert len(cert.confusion) == size
+    assert all(len(row) == size for row in cert.confusion)
+    assert all(count >= 0 for row in cert.confusion for count in row)
+    assert sum(count for row in cert.confusion for count in row) == n
+    for i, row in enumerate(cert.confusion):
+        for j, count in enumerate(row):
+            if i != j:
+                assert count == 0, f"off-diagonal mass at ({i},{j}) indicates corruption"
+
+
+async def test_confusion_wellformed_when_label_range_narrower_than_labels() -> None:
+    """Repro: scale (1,3), labels 1–3, label_range=(1.5,2.5).
+
+    Label 3 bins to 4, which is out of scale and used to IndexError.
+    """
+    client = FakeLLMClient(script=_echo_script)
+    calibrator = Calibrator(_judge(), _gold(), client, label_range=(1.5, 2.5))
+    cert = await calibrator.calibrate()  # must not raise IndexError
+    _assert_wellformed_diagonal(cert, cert.n_holdout)
+
+
+async def test_confusion_wellformed_when_label_range_offset_below_labels() -> None:
+    """Repro: scale (1,3), labels 1–3, label_range=(1.5,3.0).
+
+    Label 1.0 bins to 0, which used to negative-index and silently
+    mis-attribute counts to the wrong (last) confusion row.
+    """
+    client = FakeLLMClient(script=_echo_script)
+    calibrator = Calibrator(_judge(), _gold(), client, label_range=(1.5, 3.0))
+    cert = await calibrator.calibrate()
+    _assert_wellformed_diagonal(cert, cert.n_holdout)
+
+
+async def test_confusion_normal_in_range_case_unchanged() -> None:
+    """A normal in-range case (no label_range) stays diagonal and passing."""
+    client = FakeLLMClient(script=_echo_script)
+    calibrator = Calibrator(_judge(), _gold(), client)
+    cert = await calibrator.calibrate()
+    assert cert.binning == "identity"
+    assert cert.passed is True
+    _assert_wellformed_diagonal(cert, cert.n_holdout)
+
+
 async def test_meta_optimize_metric_rewards_agreement() -> None:
     """The perfect-echo judge should get a perfect train score."""
     client = FakeLLMClient(script=_echo_script)

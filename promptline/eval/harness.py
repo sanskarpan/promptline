@@ -236,12 +236,22 @@ class EvalHarness:
                 if prediction.failed:
                     score: float = 0.0
                     feedback: str = prediction.failure_reason
+                    failed: bool = True
                 else:
-                    raw = metric(example, prediction)
-                    if inspect.isawaitable(raw):
-                        raw = await raw
-                    score = raw.score
-                    feedback = raw.feedback
+                    # The metric may itself raise (e.g. an LLM-judge metric doing
+                    # network calls).  Isolate that failure per-example — a single
+                    # raising metric call must not abort the whole evaluation.
+                    try:
+                        raw = metric(example, prediction)
+                        if inspect.isawaitable(raw):
+                            raw = await raw
+                        score = raw.score
+                        feedback = raw.feedback
+                        failed = False
+                    except Exception as exc:
+                        score = 0.0
+                        feedback = f"metric error: {exc}"
+                        failed = True
 
                 # Charge the cost portion of the budget while still inside the
                 # semaphore so the next task observes the updated cost_used.
@@ -253,7 +263,7 @@ class EvalHarness:
                     score=score,
                     feedback=feedback,
                     cost_usd=prediction.cost_usd,
-                    failed=prediction.failed,
+                    failed=failed,
                 )
 
         tasks = [asyncio.create_task(run_one(i, ex)) for i, ex in enumerate(examples)]

@@ -434,6 +434,90 @@ async def test_resume_repairs_partial_vector(tmp_path: Path) -> None:
     assert result.scores[seed.id] == 1.0, "after repair vector reflects true mean"
 
 
+async def test_gepa_tolerates_metric_exception() -> None:
+    """A metric that raises during a minibatch must not crash the GEPA run.
+
+    The reflection/minibatch path calls the metric directly (bypassing the
+    harness), so a raising metric there must be caught and treated as 0.0.
+    """
+    program = _program()
+    seed = _seed(program)
+
+    def metric(example: Example, prediction: Prediction) -> MetricResult:
+        raise RuntimeError("judge network error")
+
+    result = await GEPA(minibatch_size=2, max_iterations=3, use_merge=False).optimize(
+        program,
+        seed,
+        _trainset(),
+        metric,
+        Budget(max_rollouts=100),
+        _harness(_client(f"Answer. {MARKER} sources.")),
+    )
+
+    # Run completes cleanly; nothing improves so seed remains best.
+    assert result.best is not None
+    assert result.best.id == seed.id
+
+
+async def test_resume_repair_checkpointed_to_disk(tmp_path: Path) -> None:
+    """After resume repairs a partial vector, the on-DISK checkpoint reflects it.
+
+    Bug 2: the repair loop fixed the vector in memory but never checkpointed,
+    so a stale 0-padded partial vector persisted on disk across resumes.
+    """
+    import json
+
+    program = _program()
+    seed = _seed(program)
+    trainset = _trainset(8)
+    run_dir = tmp_path / "run"
+
+    # Phase 1: budget so tight only 2 of 4 pareto examples evaluated → partial.
+    await GEPA(
+        minibatch_size=2,
+        n_pareto=4,
+        max_iterations=0,
+        use_merge=False,
+        run_dir=run_dir,
+    ).optimize(
+        program,
+        seed,
+        trainset,
+        _marker_metric,
+        Budget(max_rollouts=2),
+        _harness(_client("plain")),  # 0.0 scores
+    )
+
+    cp1 = json.loads((run_dir / "checkpoint.json").read_text())
+    assert seed.id in cp1.get("partial", []), "phase 1 checkpoint must record partial"
+    assert len(cp1["scores"][seed.id]) == 4  # 0.0-padded to alignment
+
+    # Phase 2: resume with generous budget + a client that always scores 1.0.
+    await GEPA(
+        minibatch_size=2,
+        n_pareto=4,
+        max_iterations=0,
+        use_merge=False,
+        resume_from=run_dir,
+    ).optimize(
+        program,
+        seed,
+        trainset,
+        _marker_metric,
+        Budget(max_rollouts=100),
+        _harness(_always_marker_client()),  # 1.0 scores
+    )
+
+    cp2 = json.loads((run_dir / "checkpoint.json").read_text())
+    assert seed.id not in cp2.get("partial", []), (
+        "repaired candidate must be cleared from partial on disk"
+    )
+    assert cp2["scores"][seed.id] == [1.0, 1.0, 1.0, 1.0], (
+        "repaired full-length vector must persist to disk"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Finding 2 — budget_tick never emitted
 # ---------------------------------------------------------------------------

@@ -279,7 +279,11 @@ class PointwiseJudge:
 # Pairwise judge
 # ---------------------------------------------------------------------------
 
-_VERDICT_RE = re.compile(r"\b(A|B|TIE)\b", re.IGNORECASE)
+# TIE is matched case-insensitively; single-letter A/B verdicts are matched
+# case-SENSITIVELY so lowercase prose articles ("a"/"b") are not misread as a
+# verdict (judges are instructed to emit uppercase A/B/TIE).
+_TIE_RE = re.compile(r"\bTIE\b", re.IGNORECASE)
+_AB_RE = re.compile(r"\b(A|B)\b")
 
 Verdict = Literal["A", "B", "TIE"]
 
@@ -306,9 +310,16 @@ class PairwiseJudge:
 
     @staticmethod
     def parse_verdict(text: str) -> Verdict | None:
-        """First standalone A/B/TIE token in *text*, case-insensitive."""
-        match = _VERDICT_RE.search(text)
-        return _VERDICTS[match.group(1).upper()] if match else None
+        """Parse a verdict from *text*.
+
+        Prefers an explicit TIE (case-insensitive); otherwise the first
+        standalone case-sensitive ``A``/``B`` token; otherwise ``None``.  This
+        avoids misreading lowercase prose articles ("a"/"b") as verdicts.
+        """
+        if _TIE_RE.search(text):
+            return "TIE"
+        match = _AB_RE.search(text)
+        return _VERDICTS[match.group(1)] if match else None
 
     async def _one_ordering(
         self,

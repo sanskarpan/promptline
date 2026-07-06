@@ -390,6 +390,35 @@ async def test_crashed_example_does_not_kill_eval() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Metric exception isolation (TDD — bug 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_metric_exception_does_not_kill_eval() -> None:
+    """A metric that raises on one example is isolated; other examples still score."""
+    fake = FakeLLMClient(script=["[[answer]]: ok" for _ in range(4)])
+
+    def metric(example: Example, prediction) -> MetricResult:
+        if example.inputs["question"] == "Q2":
+            raise RuntimeError("judge network error")
+        return MetricResult(score=1.0)
+
+    harness = EvalHarness(fake, _cfg(), concurrency=1)
+    report = await harness.evaluate(_program(), _candidate(), _examples(4), metric)
+
+    assert report.n == 4
+    failed = [r for r in report.per_example if r.failed]
+    assert len(failed) == 1
+    assert failed[0].example_idx == 2
+    assert failed[0].score == 0.0
+    assert "metric error:" in failed[0].feedback
+    # The other three examples scored normally.
+    assert sum(1 for r in report.per_example if not r.failed) == 3
+    assert all(r.score == 1.0 for r in report.per_example if not r.failed)
+
+
+# ---------------------------------------------------------------------------
 # Finding 4 (minor): concurrent rollout wall
 # ---------------------------------------------------------------------------
 

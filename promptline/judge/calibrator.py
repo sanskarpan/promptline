@@ -138,12 +138,21 @@ class Calibrator:
         else:
             vmin, vmax = min(values), max(values)
         if vmin == lo and vmax == hi:
-            return [round(v) for v in values], "identity", vmin, vmax
-        if vmax == vmin:
+            raw = [round(v) for v in values]
+            binning = "identity"
+        elif vmax == vmin:
             mid = round((lo + hi) / 2)
-            return [mid] * len(values), "linear-minmax", vmin, vmax
-        binned = [round(lo + (v - vmin) / (vmax - vmin) * (hi - lo)) for v in values]
-        return binned, "linear-minmax", vmin, vmax
+            raw = [mid] * len(values)
+            binning = "linear-minmax"
+        else:
+            raw = [round(lo + (v - vmin) / (vmax - vmin) * (hi - lo)) for v in values]
+            binning = "linear-minmax"
+        # Clamp to the judge scale exactly like judge_binned; a declared
+        # label_range narrower/offset from the observed labels can otherwise
+        # produce bins outside [lo, hi], which IndexError or negative-index
+        # into the confusion matrix (silent corruption).
+        binned = [max(lo, min(hi, b)) for b in raw]
+        return binned, binning, vmin, vmax
 
     # ------------------------------------------------------------------
     # Certification
