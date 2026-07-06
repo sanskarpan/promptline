@@ -5,6 +5,7 @@ minibatch example, the module's inputs, its raw output, the score and the
 textual feedback from the metric.  It must reply with a new instruction inside
 a fenced code block.
 """
+
 from __future__ import annotations
 
 import re

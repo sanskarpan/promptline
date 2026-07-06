@@ -5,6 +5,7 @@ eval history, and a per-program *active* pointer.  :meth:`PromptRegistry.activat
 is the ONLY method that moves the pointer; every pointer move (activate or
 rollback) is appended to ``activation_history``.
 """
+
 from __future__ import annotations
 
 import json
@@ -109,10 +110,7 @@ class PromptRegistry:
                 "FROM prompts p WHERE p.program = ? ORDER BY p.rowid",
                 (program,),
             ).fetchall()
-        return [
-            {"id": r[0], "created_at": r[1], "run_id": r[2], "mean_score": r[3]}
-            for r in rows
-        ]
+        return [{"id": r[0], "created_at": r[1], "run_id": r[2], "mean_score": r[3]} for r in rows]
 
     # ------------------------------------------------------------------
     # Evals (append-only)
@@ -167,18 +165,14 @@ class PromptRegistry:
             "candidate": Candidate.model_validate_json(row[2]),
         }
 
-    def activate(
-        self, program: str, prompt_id: str, gate_report_json: str = "{}"
-    ) -> None:
+    def activate(self, program: str, prompt_id: str, gate_report_json: str = "{}") -> None:
         """Move the active pointer for *program* to *prompt_id*.
 
         This is the only method that moves the pointer forward.  Raises
         :class:`KeyError` when the prompt is not registered.
         """
         with self._lock:
-            row = self._conn.execute(
-                "SELECT 1 FROM prompts WHERE id = ?", (prompt_id,)
-            ).fetchone()
+            row = self._conn.execute("SELECT 1 FROM prompts WHERE id = ?", (prompt_id,)).fetchone()
             if row is None:
                 raise KeyError(f"prompt {prompt_id!r} is not registered")
             ts = _now()
@@ -205,8 +199,7 @@ class PromptRegistry:
         """
         with self._lock:
             rows = self._conn.execute(
-                "SELECT prompt_id, action FROM activation_history "
-                "WHERE program = ? ORDER BY id",
+                "SELECT prompt_id, action FROM activation_history WHERE program = ? ORDER BY id",
                 (program,),
             ).fetchall()
             stack: list[str] = []

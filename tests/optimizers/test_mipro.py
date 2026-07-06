@@ -1,4 +1,5 @@
 """Tests for the MIPRO-like Bayesian optimizer."""
+
 from __future__ import annotations
 
 import pytest
@@ -28,10 +29,7 @@ def _program() -> PromptProgram:
 
 def _seed(program: PromptProgram) -> Candidate:
     return Candidate.seed(
-        modules={
-            m.name: ModuleState(instruction=m.signature.instruction)
-            for m in program.modules
-        }
+        modules={m.name: ModuleState(instruction=m.signature.instruction) for m in program.modules}
     )
 
 
@@ -120,9 +118,7 @@ async def test_mipro_finds_marker_instruction() -> None:
         minibatch_size=2,
         rng_seed=0,
     )
-    result = await opt.optimize(
-        program, seed, _examples(6), _good_metric, budget, harness
-    )
+    result = await opt.optimize(program, seed, _examples(6), _good_metric, budget, harness)
 
     best_instruction = result.best.modules["main"].instruction
     assert MARKER in best_instruction, (
@@ -160,10 +156,7 @@ async def test_mipro_summary_and_proposal_prompts() -> None:
     )
     await opt.optimize(program, seed, _examples(5), _good_metric, budget, harness)
 
-    summary_calls = [
-        c for c in client.calls
-        if "Summarize the patterns" in c.messages[-1].content
-    ]
+    summary_calls = [c for c in client.calls if "Summarize the patterns" in c.messages[-1].content]
     assert len(summary_calls) == 1
     summary_prompt = summary_calls[0].messages[-1].content
     # All 5 examples fit in the 10-example sample, so each must appear.
@@ -172,8 +165,7 @@ async def test_mipro_summary_and_proposal_prompts() -> None:
     assert "GOOD" in summary_prompt  # labels rendered too
 
     proposal_calls = [
-        c for c in client.calls
-        if "Write an improved instruction" in c.messages[-1].content
+        c for c in client.calls if "Write an improved instruction" in c.messages[-1].content
     ]
     assert len(proposal_calls) == 3  # n_instruction_candidates - 1
     for call in proposal_calls:
@@ -209,9 +201,7 @@ async def test_mipro_demo_sets_zero_shot_and_capped() -> None:
         minibatch_size=2,
         rng_seed=0,
     )
-    result = await opt.optimize(
-        program, seed, _examples(8), _always_pass_metric, budget, harness
-    )
+    result = await opt.optimize(program, seed, _examples(8), _always_pass_metric, budget, harness)
 
     trial_candidates = [c for c in result.candidates if c.id != seed.id]
     assert trial_candidates, "expected at least one trial candidate"
@@ -252,7 +242,12 @@ async def test_mipro_config_dedupe_no_reeval() -> None:
     events: list[RunEvent] = []
     trainset = _examples(4)
     result = await opt.optimize(
-        program, seed, trainset, _always_pass_metric, budget, harness,
+        program,
+        seed,
+        trainset,
+        _always_pass_metric,
+        budget,
+        harness,
         emit=events.append,
     )
 
@@ -282,9 +277,7 @@ async def test_mipro_budget_early_stop() -> None:
     budget = Budget(max_rollouts=3)
 
     opt = MIPRO(n_trials=30, minibatch_size=4, rng_seed=0)
-    result = await opt.optimize(
-        program, seed, _examples(10), _good_metric, budget, harness
-    )
+    result = await opt.optimize(program, seed, _examples(10), _good_metric, budget, harness)
 
     assert result.best is not None
     assert result.best.id in result.scores
@@ -316,7 +309,12 @@ async def test_mipro_truncated_full_eval_not_recorded() -> None:
     )
     events: list[RunEvent] = []
     result = await opt.optimize(
-        program, seed, _examples(6), _always_pass_metric, budget, harness,
+        program,
+        seed,
+        _examples(6),
+        _always_pass_metric,
+        budget,
+        harness,
         emit=events.append,
     )
 
@@ -346,7 +344,12 @@ async def test_mipro_truncated_minibatch_pruned_not_scored() -> None:
     )
     events: list[RunEvent] = []
     result = await opt.optimize(
-        program, seed, _examples(6), _always_pass_metric, budget, harness,
+        program,
+        seed,
+        _examples(6),
+        _always_pass_metric,
+        budget,
+        harness,
         emit=events.append,
     )
 
@@ -376,7 +379,12 @@ async def test_mipro_events_all_types() -> None:
         rng_seed=0,
     )
     await opt.optimize(
-        program, seed, _examples(6), _good_metric, budget, harness,
+        program,
+        seed,
+        _examples(6),
+        _good_metric,
+        budget,
+        harness,
         emit=events.append,
     )
 
@@ -384,7 +392,10 @@ async def test_mipro_events_all_types() -> None:
     assert types[0] == "run_started"
     assert types[-1] == "run_finished"
     for expected in (
-        "candidate_proposed", "minibatch_scored", "full_eval", "budget_tick",
+        "candidate_proposed",
+        "minibatch_scored",
+        "full_eval",
+        "budget_tick",
     ):
         assert expected in types, f"missing event type {expected}"
 
@@ -392,14 +403,14 @@ async def test_mipro_events_all_types() -> None:
     assert all("module" in e.payload and "tip" in e.payload for e in proposed)
     scored = [e for e in events if e.type == "minibatch_scored"]
     assert all(
-        "trial" in e.payload and "config" in e.payload and "score" in e.payload
-        for e in scored
+        "trial" in e.payload and "config" in e.payload and "score" in e.payload for e in scored
     )
 
 
 @pytest.mark.asyncio
 async def test_mipro_deterministic_same_seed() -> None:
     """Two runs with the same rng_seed pick the same best instruction."""
+
     async def _run() -> str:
         program = _program()
         seed = _seed(program)
@@ -413,9 +424,7 @@ async def test_mipro_deterministic_same_seed() -> None:
             minibatch_size=2,
             rng_seed=7,
         )
-        result = await opt.optimize(
-            program, seed, _examples(6), _good_metric, budget, harness
-        )
+        result = await opt.optimize(program, seed, _examples(6), _good_metric, budget, harness)
         return result.best.modules["main"].instruction
 
     first = await _run()

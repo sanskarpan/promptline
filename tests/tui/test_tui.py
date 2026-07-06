@@ -1,4 +1,5 @@
 """Tests for the Promptline TUI cockpit and its event feed."""
+
 from __future__ import annotations
 
 import asyncio
@@ -25,20 +26,12 @@ def _synthetic_events() -> list[RunEvent]:
     return [
         RunEvent.now("run_started", optimizer="gepa"),
         RunEvent.now("candidate_proposed", candidate_id=CAND_A, parent_id=SEED),
-        RunEvent.now(
-            "candidate_proposed", candidate_id=CAND_B, parents=[CAND_A]
-        ),
-        RunEvent.now(
-            "candidate_proposed", candidate_id=CAND_C, parent_ids=[CAND_A]
-        ),
+        RunEvent.now("candidate_proposed", candidate_id=CAND_B, parents=[CAND_A]),
+        RunEvent.now("candidate_proposed", candidate_id=CAND_C, parent_ids=[CAND_A]),
         RunEvent.now("full_eval", candidate_id=CAND_A, mean_score=0.5),
         RunEvent.now("full_eval", candidate_id=CAND_B, mean_score=0.75),
-        RunEvent.now(
-            "budget_tick", rollouts_used=10, cost_used=0.01, max_rollouts=100
-        ),
-        RunEvent.now(
-            "budget_tick", rollouts_used=42, cost_used=0.1234, max_rollouts=100
-        ),
+        RunEvent.now("budget_tick", rollouts_used=10, cost_used=0.01, max_rollouts=100),
+        RunEvent.now("budget_tick", rollouts_used=42, cost_used=0.1234, max_rollouts=100),
         RunEvent.now("minibatch_scored", score=0.9, trial=1),
         RunEvent.now("run_finished", optimizer="gepa", best_id=CAND_B),
     ]
@@ -117,9 +110,7 @@ async def _drain(feed: RunEventFeed) -> list[RunEvent]:
 async def test_feed_idle_timeout_stops(tmp_path: Path) -> None:
     path = tmp_path / "events.jsonl"
     _write_events(path, _synthetic_events()[:2])
-    feed = RunEventFeed.from_file(
-        path, follow=True, poll_interval=0.01, idle_timeout=0.05
-    )
+    feed = RunEventFeed.from_file(path, follow=True, poll_interval=0.01, idle_timeout=0.05)
     seen = await asyncio.wait_for(_drain(feed), timeout=5.0)
     assert len(seen) == 2
 
@@ -141,9 +132,7 @@ async def test_app_mounts_all_panes() -> None:
         assert app.query_one("#lineage", Tree)
         assert app.query_one("#events", RichLog)
         # Pane titles are uppercase.
-        titles = {
-            str(static.content) for static in app.query(".title").results(Static)
-        }
+        titles = {str(static.content) for static in app.query(".title").results(Static)}
         assert {"SCORE", "BUDGET", "LINEAGE", "EVENTS"} <= titles
         await pilot.pause()
 
@@ -160,9 +149,7 @@ async def test_app_consumes_synthetic_feed() -> None:
         assert _tree_size(tree) == 4
         # Parent edges resolved: B and C hang off A.
         node_a = app._tree_nodes[CAND_A]
-        assert {app._tree_nodes[CAND_B], app._tree_nodes[CAND_C]} == set(
-            node_a.children
-        )
+        assert {app._tree_nodes[CAND_B], app._tree_nodes[CAND_C]} == set(node_a.children)
         # Scored nodes carry their full-eval score in the label.
         assert f"{CAND_B[:8]} 0.750" in str(node_a.children[0].label) or any(
             "0.750" in str(child.label) for child in node_a.children
@@ -191,9 +178,7 @@ async def test_sparkline_collects_full_eval_means() -> None:
         await app.workers.wait_for_complete()
         await pilot.pause()
 
-        expected = [
-            e.payload["mean_score"] for e in events if e.type == "full_eval"
-        ]
+        expected = [e.payload["mean_score"] for e in events if e.type == "full_eval"]
         assert app.full_eval_means == expected
         spark = app.query_one("#score-spark", Sparkline)
         assert list(spark.data) == expected
@@ -240,7 +225,7 @@ async def test_malformed_line_does_not_flip_failed(tmp_path: Path) -> None:
     events = _synthetic_events()
     with path.open("w") as fh:
         fh.write(events[0].model_dump_json() + "\n")  # run_started
-        fh.write("{broken json\n")                     # malformed line
+        fh.write("{broken json\n")  # malformed line
         for event in events[1:]:
             fh.write(event.model_dump_json() + "\n")
 

@@ -11,6 +11,7 @@ Three stages:
    ``inst_<module> x demo_<module>``, scoring configs on fresh minibatches with
    periodic full evaluations of the most promising configs.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -69,8 +70,7 @@ def _build_program_summary(program: PromptProgram, seed: Candidate) -> str:
         outputs = ", ".join(f.name for f in sig.outputs)
         instruction = seed.modules[module.name].instruction
         lines.append(
-            f"- {module.name}: inputs=({inputs}) outputs=({outputs}) "
-            f'instruction="{instruction}"'
+            f'- {module.name}: inputs=({inputs}) outputs=({outputs}) instruction="{instruction}"'
         )
     return "\n".join(lines)
 
@@ -275,9 +275,7 @@ class MIPRO(Optimizer):
                 # Derive a stable id from content so the TUI lineage tree can
                 # render MIPRO proposals.  SHA-256 of "module:instruction"
                 # gives a collision-free 12-hex-char id without any new deps.
-                proposal_id = hashlib.sha256(
-                    f"{module.name}:{proposed}".encode()
-                ).hexdigest()[:12]
+                proposal_id = hashlib.sha256(f"{module.name}:{proposed}".encode()).hexdigest()[:12]
                 emit(
                     RunEvent.now(
                         "candidate_proposed",

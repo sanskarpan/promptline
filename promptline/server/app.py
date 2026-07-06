@@ -13,6 +13,7 @@ The app is dependency-injected: *run_starter* and *gate_runner* are closures
 built by the CLI (``promptline serve``) from the project config; tests inject
 fakes.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -146,9 +147,7 @@ def create_app(
         body = {
             "program": program,
             "prompt_id": prompt_id,
-            "modules": {
-                name: state.model_dump() for name, state in candidate.modules.items()
-            },
+            "modules": {name: state.model_dump() for name, state in candidate.modules.items()},
             "activated_at": info["activated_at"],
         }
         return Response(
@@ -169,9 +168,7 @@ def create_app(
         # Bind to a local so the None-narrowing survives into the lambda.
         starter = run_starter
         try:
-            run_id = run_manager.start(
-                lambda emit, run_dir: starter(spec, emit, run_dir)
-            )
+            run_id = run_manager.start(lambda emit, run_dir: starter(spec, emit, run_dir))
         except RunStartError as exc:
             # Factory raised synchronously (e.g. dataset not found).  The run
             # is already stored as failed; return 400 with the error and
@@ -259,9 +256,7 @@ def create_app(
     @app.post("/registry/{program}/activate")
     def registry_activate(program: str, body: ActivateRequest = Body(...)) -> dict:
         try:
-            registry.activate(
-                program, body.prompt_id, json.dumps(body.gate_report)
-            )
+            registry.activate(program, body.prompt_id, json.dumps(body.gate_report))
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
         return {"program": program, "prompt_id": body.prompt_id}

@@ -2,6 +2,7 @@
 
 Entry point: ``promptline`` (see ``[project.scripts]`` in pyproject.toml).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -67,6 +68,7 @@ def _main(
 ) -> None:
     """Prompt Optimization Pipeline CLI."""
 
+
 # ---------------------------------------------------------------------------
 # demo + data sub-apps
 # ---------------------------------------------------------------------------
@@ -100,6 +102,7 @@ def data_prepare(
         # OptionInfo sentinels when bypassing the CLI layer).
         demo_setup(dir=dir, offline=offline, gold_n=400, dev_n=150, val_n=150)
     raise typer.Exit(0)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -192,21 +195,27 @@ def _build_optimizer(
         raise ValueError("--resume is only supported for the gepa optimizer")
     if choice == OptimizerChoice.bootstrap:
         from promptline.optimizers.bootstrap import BootstrapFewShot
+
         return BootstrapFewShot()
     elif choice == OptimizerChoice.bootstrap_rs:
         from promptline.optimizers.bootstrap import BootstrapRandomSearch
+
         return BootstrapRandomSearch()
     elif choice == OptimizerChoice.gepa:
         from promptline.optimizers.gepa import GEPA
+
         return GEPA(run_dir=run_dir, resume_from=run_dir if resume else None)
     elif choice == OptimizerChoice.protegi:
         from promptline.optimizers.protegi import ProTeGi
+
         return ProTeGi()
     elif choice == OptimizerChoice.mipro:
         from promptline.optimizers.mipro import MIPRO
+
         return MIPRO()
     else:
         from promptline.optimizers.opro import OPRO
+
         return OPRO()
 
 
@@ -318,18 +327,14 @@ def init(
     """Write a starter promptline.yaml in the current directory."""
     config_path = Path("promptline.yaml")
     if config_path.exists() and not force:
-        console.print(
-            "[red]promptline.yaml already exists.[/red] "
-            "Pass --force to overwrite."
-        )
+        console.print("[red]promptline.yaml already exists.[/red] Pass --force to overwrite.")
         raise typer.Exit(1)
     config_path.write_text(default_config_yaml())
     console.print(f"[green]Created[/green] {config_path.resolve()}")
     console.print("\nNext steps:")
     console.print("  1. Edit [bold]promptline.yaml[/bold] — set your instruction, inputs, outputs.")
     console.print(
-        "  2. Prepare a [bold]data.jsonl[/bold] with "
-        '{\"inputs\": {...}, \"labels\": {...}} lines.'
+        '  2. Prepare a [bold]data.jsonl[/bold] with {"inputs": {...}, "labels": {...}} lines.'
     )
     console.print("  3. Run [bold]promptline optimize[/bold] to start optimizing.")
 
@@ -387,8 +392,7 @@ def optimize(
     data_path = data or cfg.dataset.path
     if not data_path:
         console.print(
-            "[red]No dataset path specified.[/red] "
-            "Use --data or set dataset.path in config."
+            "[red]No dataset path specified.[/red] Use --data or set dataset.path in config."
         )
         raise typer.Exit(1)
     if not Path(data_path).exists():
@@ -418,6 +422,7 @@ def optimize(
     # GEPA writes events/checkpoints to run_dir itself; for the other
     # optimizers the CLI-owned recorder captures the event stream.
     if optimizer == OptimizerChoice.gepa:
+
         def _emit(event):  # GEPA's internal recorder already persists events.
             pass
     else:
@@ -463,8 +468,7 @@ def optimize(
         )
 
     console.print(
-        f"\nRunning [bold]{optimizer.value}[/bold] optimizer "
-        f"on {len(examples_preview)} examples …"
+        f"\nRunning [bold]{optimizer.value}[/bold] optimizer on {len(examples_preview)} examples …"
     )
     console.print(f"[bold]Metric:[/bold] {metric_label}")
     console.print(f"[bold]Run id:[/bold] {run_id}")
@@ -482,10 +486,7 @@ def optimize(
     table.add_column("Instruction (excerpt)", max_width=60)
 
     # Sort candidates by score descending.
-    scored = [
-        (c, result.scores.get(c.id, float("nan")))
-        for c in result.candidates
-    ]
+    scored = [(c, result.scores.get(c.id, float("nan"))) for c in result.candidates]
     scored.sort(key=lambda x: x[1] if x[1] == x[1] else -1, reverse=True)
 
     for cand, score in scored[:10]:
@@ -517,6 +518,7 @@ def optimize(
 # ---------------------------------------------------------------------------
 # calibrate
 # ---------------------------------------------------------------------------
+
 
 def _load_gold_dataset(gold: str, criterion: str, n: int | None) -> Dataset:
     """Load the gold dataset from a JSONL path or the HelpSteer2 HF loader."""
@@ -673,9 +675,7 @@ def gate(
     ),
     dev: str = typer.Option(..., "--dev", help="Dev split JSONL path."),
     val: str = typer.Option(..., "--val", help="Held-out val split JSONL path."),
-    config: str = typer.Option(
-        "promptline.yaml", "--config", help="Path to promptline.yaml."
-    ),
+    config: str = typer.Option("promptline.yaml", "--config", help="Path to promptline.yaml."),
 ) -> None:
     """Statistically gate candidates against the active prompt.
 
@@ -806,12 +806,9 @@ def gate(
 
     # ---- Promote ------------------------------------------------------------------------
     if report.verdict == "promote" and report.winner_id:
-        registry.activate(
-            program_name, report.winner_id, report.model_dump_json()
-        )
+        registry.activate(program_name, report.winner_id, report.model_dump_json())
         console.print(
-            f"[green]Promoted[/green] {report.winner_id} to active for "
-            f"program {program_name!r}"
+            f"[green]Promoted[/green] {report.winner_id} to active for program {program_name!r}"
         )
         raise typer.Exit(0)
     raise typer.Exit(1)
@@ -895,9 +892,7 @@ def registry_activate_cmd(
         "[yellow]Warning:[/yellow] activated without a gate report "
         "(baseline bootstrap). Use 'promptline gate' for gated promotions."
     )
-    console.print(
-        f"[green]Activated[/green] {prompt_id} for program {program_name!r}"
-    )
+    console.print(f"[green]Activated[/green] {prompt_id} for program {program_name!r}")
 
 
 @registry_app.command("rollback")
@@ -911,9 +906,7 @@ def registry_rollback_cmd(
     except RuntimeError as exc:
         console.print(f"[red]Rollback failed:[/red] {exc}")
         raise typer.Exit(1) from exc
-    console.print(
-        f"[green]Rolled back[/green] program {program_name!r} to {target}"
-    )
+    console.print(f"[green]Rolled back[/green] program {program_name!r} to {target}")
 
 
 # ---------------------------------------------------------------------------
@@ -971,9 +964,7 @@ def build_app_from_config(config_path: str):
         choice = OptimizerChoice(spec.optimizer)
         data_path = spec.data_path or cfg.dataset.path
         run_budget = Budget(
-            max_rollouts=(
-                spec.budget if spec.budget is not None else cfg.budget.max_rollouts
-            ),
+            max_rollouts=(spec.budget if spec.budget is not None else cfg.budget.max_rollouts),
             max_cost_usd=cfg.budget.max_cost_usd,
         )
         run_id = run_dir.name  # RunManager sets run_dir = base_dir / run_id
@@ -1014,9 +1005,7 @@ def build_app_from_config(config_path: str):
                 settings.min_kappa = cfg.judge.min_kappa
             # Parity with the CLI gate command: cost-capped budget, no
             # rollout ceiling (gate runs are bounded by data size).
-            gate_budget = Budget(
-                max_rollouts=None, max_cost_usd=cfg.budget.max_cost_usd
-            )
+            gate_budget = Budget(max_rollouts=None, max_cost_usd=cfg.budget.max_cost_usd)
             report = await run_gate(
                 program=program,
                 incumbent=incumbent,
@@ -1031,14 +1020,8 @@ def build_app_from_config(config_path: str):
             # Parity with the CLI: on a promote verdict, activate the winner
             # with the gate report attached (unless promote=false).
             activated = False
-            if (
-                payload.get("promote", True)
-                and report.verdict == "promote"
-                and report.winner_id
-            ):
-                registry.activate(
-                    program_name, report.winner_id, report.model_dump_json()
-                )
+            if payload.get("promote", True) and report.verdict == "promote" and report.winner_id:
+                registry.activate(program_name, report.winner_id, report.model_dump_json())
                 activated = True
             return {**report.model_dump(), "activated": activated}
 
@@ -1063,9 +1046,7 @@ def tui(
     attach: str | None = typer.Option(
         None, "--attach", help="SSE URL to attach to (e.g. http://host/runs/<id>/events)."
     ),
-    config: str = typer.Option(
-        "promptline.yaml", "--config", help="Path to promptline.yaml."
-    ),
+    config: str = typer.Option("promptline.yaml", "--config", help="Path to promptline.yaml."),
 ) -> None:
     """Open the live TUI cockpit for an optimizer run."""
     from promptline.tui.app import PromptlineTUI
@@ -1090,9 +1071,7 @@ def tui(
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8000, "--port"),
-    config: str = typer.Option(
-        "promptline.yaml", "--config", help="Path to promptline.yaml."
-    ),
+    config: str = typer.Option("promptline.yaml", "--config", help="Path to promptline.yaml."),
 ) -> None:
     """Serve the Promptline control and serving planes over HTTP."""
     if not Path(config).exists():

@@ -28,9 +28,7 @@ def test_ci_includes_zero_for_null_effect() -> None:
     rng = np.random.default_rng(42)
     deltas = rng.normal(loc=0.0, scale=1.0, size=30).tolist()
     mean_d, ci_low, ci_high = paired_bootstrap_ci(deltas, rng_seed=2)
-    assert ci_low <= 0.0 <= ci_high, (
-        f"Expected CI to include 0 but got [{ci_low}, {ci_high}]"
-    )
+    assert ci_low <= 0.0 <= ci_high, f"Expected CI to include 0 but got [{ci_low}, {ci_high}]"
 
 
 def test_ci_all_zeros_returns_zero_triple() -> None:

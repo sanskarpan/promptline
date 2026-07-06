@@ -8,6 +8,7 @@ Budget-capped hard at $0.50 / 20 rollouts: a tiny GEPA run over 5 support
 examples with a judge-as-metric on claude-3.5-haiku, then a deliberately
 undersized (min_examples=5) gate run that only has to *produce a report*.
 """
+
 from __future__ import annotations
 
 import os
@@ -114,10 +115,10 @@ async def test_live_gepa_then_gate_smoke(tmp_path: Path) -> None:
     report = await run_gate(
         program=program,
         incumbent=seed,
-        candidates=[result.best] if result.best.id != seed.id else [
-            Candidate.seed(
-                {"support": ModuleState(instruction="Answer politely and cite steps.")}
-            )
+        candidates=[result.best]
+        if result.best.id != seed.id
+        else [
+            Candidate.seed({"support": ModuleState(instruction="Answer politely and cite steps.")})
         ],
         dev=_examples("dev", SUPPORT_QUESTIONS),
         val=_examples("val", SUPPORT_QUESTIONS),

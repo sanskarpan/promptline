@@ -7,6 +7,7 @@ missing/insufficient judge calibration certificate.  A candidate is promoted
 only when it survives Holm-corrected significance testing on dev AND its
 paired confidence interval on the held-out val set excludes zero.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -48,9 +49,7 @@ class GateSettings:
     min_kappa: float = 0.6
 
     @classmethod
-    def from_config(
-        cls, cfg: GateConfig, judge: JudgeConfig | None = None
-    ) -> GateSettings:
+    def from_config(cls, cfg: GateConfig, judge: JudgeConfig | None = None) -> GateSettings:
         """Build settings from the ``gate`` (and optionally ``judge``) config.
 
         ``judge.certificate`` is the primary certificate location;
@@ -113,9 +112,7 @@ class GateReport(BaseModel):
 
 def _example_hash(example: Example) -> str:
     """Content hash over inputs+labels for dev/val overlap detection."""
-    canonical = json.dumps(
-        {"inputs": example.inputs, "labels": example.labels}, sort_keys=True
-    )
+    canonical = json.dumps({"inputs": example.inputs, "labels": example.labels}, sort_keys=True)
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -139,9 +136,7 @@ async def _direct_eval(
         if budget is not None and not await budget.try_reserve(rollouts=1):
             break
         try:
-            prediction = await program.run(
-                example, candidate, harness.client, harness.cfg
-            )
+            prediction = await program.run(example, candidate, harness.client, harness.cfg)
         except Exception:
             results.append((idx, "", 0.0))
             continue
@@ -252,13 +247,9 @@ async def run_gate(
         deltas = _paired_deltas(cand_scores, incumbent_scores)
         if deltas:
             p_value = bootstrap_pvalue(deltas)
-            mean_delta, ci_low, ci_high = paired_bootstrap_ci(
-                deltas, alpha=settings.alpha
-            )
+            mean_delta, ci_low, ci_high = paired_bootstrap_ci(deltas, alpha=settings.alpha)
         else:
-            warnings.append(
-                f"candidate {candidate.id}: no paired dev examples; skipped"
-            )
+            warnings.append(f"candidate {candidate.id}: no paired dev examples; skipped")
             p_value, mean_delta, ci_low, ci_high = 1.0, 0.0, 0.0, 0.0
         pvals.append(p_value)
         results.append(
@@ -275,9 +266,7 @@ async def run_gate(
         )
 
     # ---- Holm correction ---------------------------------------------------
-    for result, significant in zip(
-        results, holm_correct(pvals, alpha=settings.alpha), strict=True
-    ):
+    for result, significant in zip(results, holm_correct(pvals, alpha=settings.alpha), strict=True):
         result.holm_significant = significant
 
     survivors = [r for r in results if r.holm_significant and r.mean_delta > 0]
@@ -299,9 +288,7 @@ async def run_gate(
     flags: list[str] = []
     spot_samples: list[dict] = []
     if collect_outputs:
-        incumbent_val = await _direct_eval(
-            program, incumbent, val, harness, metric, budget
-        )
+        incumbent_val = await _direct_eval(program, incumbent, val, harness, metric, budget)
         winner_val = await _direct_eval(program, winner, val, harness, metric, budget)
         incumbent_val_scores = {i: s for i, _, s in incumbent_val}
         winner_val_scores = {i: s for i, _, s in winner_val}
@@ -310,8 +297,7 @@ async def run_gate(
         winner_mean_len = _mean_len([o for _, o, _ in winner_val])
         if (
             incumbent_mean_len > 0
-            and winner_mean_len
-            > settings.verbosity_ratio_flag * incumbent_mean_len
+            and winner_mean_len > settings.verbosity_ratio_flag * incumbent_mean_len
         ):
             flags.append("verbosity")
         spot_samples = [
@@ -319,16 +305,10 @@ async def run_gate(
             for i, o, s in winner_val[: settings.n_spot_samples]
         ]
     else:
-        incumbent_val_report = await harness.evaluate(
-            program, incumbent, val, metric, budget
-        )
+        incumbent_val_report = await harness.evaluate(program, incumbent, val, metric, budget)
         winner_val_report = await harness.evaluate(program, winner, val, metric, budget)
-        incumbent_val_scores = {
-            r.example_idx: r.score for r in incumbent_val_report.per_example
-        }
-        winner_val_scores = {
-            r.example_idx: r.score for r in winner_val_report.per_example
-        }
+        incumbent_val_scores = {r.example_idx: r.score for r in incumbent_val_report.per_example}
+        winner_val_scores = {r.example_idx: r.score for r in winner_val_report.per_example}
 
     val_deltas = _paired_deltas(winner_val_scores, incumbent_val_scores)
     if not val_deltas:
@@ -349,12 +329,8 @@ async def run_gate(
     if paired_val_n < settings.min_examples:
         warnings.append(f"val truncated to n={paired_val_n} (< min_examples)")
 
-    val_mean_delta, val_ci_low, val_ci_high = paired_bootstrap_ci(
-        val_deltas, alpha=settings.alpha
-    )
-    verdict: Literal["promote", "reject"] = (
-        "promote" if val_ci_low > 0 else "reject"
-    )
+    val_mean_delta, val_ci_low, val_ci_high = paired_bootstrap_ci(val_deltas, alpha=settings.alpha)
+    verdict: Literal["promote", "reject"] = "promote" if val_ci_low > 0 else "reject"
     if paired_val_n < 10:
         flags.append("val_too_small")
         verdict = "reject"

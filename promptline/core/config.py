@@ -2,6 +2,7 @@
 
 Loads ``promptline.yaml`` into a :class:`PromptlineConfig` pydantic model.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

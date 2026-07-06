@@ -5,6 +5,7 @@ Covers: uncalibrated judges blocking the gate, budget exhaustion mid-GEPA
 active pointer, contaminated/undersized gate splits, and a judge whose every
 sample is unparseable scoring 0.0 instead of crashing the harness.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -104,8 +105,12 @@ async def test_gepa_budget_wall_then_resume(tmp_path: Path) -> None:
     first = await GEPA(
         minibatch_size=3, max_iterations=10, use_merge=False, run_dir=run_dir
     ).optimize(
-        program, seed, trainset, marker_metric,
-        small, make_harness(make_pipeline_client()),
+        program,
+        seed,
+        trainset,
+        marker_metric,
+        small,
+        make_harness(make_pipeline_client()),
     )
 
     assert small.exhausted
@@ -123,8 +128,12 @@ async def test_gepa_budget_wall_then_resume(tmp_path: Path) -> None:
         run_dir=run_dir,
         resume_from=run_dir,
     ).optimize(
-        program, seed, trainset, marker_metric,
-        Budget(max_rollouts=100), make_harness(make_pipeline_client()),
+        program,
+        seed,
+        trainset,
+        marker_metric,
+        Budget(max_rollouts=100),
+        make_harness(make_pipeline_client()),
     )
 
     assert len(resumed.candidates) > len(first.candidates)
@@ -187,9 +196,7 @@ async def test_gate_rejects_noise_candidates_no_activation(tmp_path: Path) -> No
 async def test_gate_refuses_contaminated_splits() -> None:
     program = support_program()
     seed = seed_for(program)
-    challenger = Candidate(
-        id="c-1", modules={"support": ModuleState(instruction=f"A. {MARKER}.")}
-    )
+    challenger = Candidate(id="c-1", modules={"support": ModuleState(instruction=f"A. {MARKER}.")})
     shared = support_trainset(60, "shared")
     with pytest.raises(ValueError, match="contamination"):
         await run_gate(
@@ -207,9 +214,7 @@ async def test_gate_refuses_contaminated_splits() -> None:
 async def test_gate_refuses_undersized_dev() -> None:
     program = support_program()
     seed = seed_for(program)
-    challenger = Candidate(
-        id="c-1", modules={"support": ModuleState(instruction=f"A. {MARKER}.")}
-    )
+    challenger = Candidate(id="c-1", modules={"support": ModuleState(instruction=f"A. {MARKER}.")})
     with pytest.raises(ValueError, match="dev set too small"):
         await run_gate(
             program=program,
@@ -240,9 +245,7 @@ async def test_unparseable_judge_scores_zero_inside_harness() -> None:
     metric = judge.as_metric(make_judge_client("unparseable"))
     harness = make_harness(make_pipeline_client())
 
-    report = await harness.evaluate(
-        program, seed, support_trainset(4, "judge"), metric
-    )
+    report = await harness.evaluate(program, seed, support_trainset(4, "judge"), metric)
 
     assert report.n == 4
     assert all(r.score == 0.0 for r in report.per_example)

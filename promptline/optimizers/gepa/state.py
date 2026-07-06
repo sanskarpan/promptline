@@ -3,6 +3,7 @@
 Holds the candidate pool, the per-instance Pareto score matrix and the loop
 counters, plus (de)serialization used for checkpointing.
 """
+
 from __future__ import annotations
 
 from promptline.core.types import Candidate
@@ -74,10 +75,7 @@ class GepaState:
         for raw in data.get("candidates", []):
             candidate = Candidate.model_validate(raw)
             state.pool[candidate.id] = candidate
-        state.scores = {
-            cid: [float(s) for s in vec]
-            for cid, vec in data.get("scores", {}).items()
-        }
+        state.scores = {cid: [float(s) for s in vec] for cid, vec in data.get("scores", {}).items()}
         state.partial = set(data.get("partial", []))
         state.iteration = int(data.get("iteration", 0))
         state.merges_done = int(data.get("merges_done", 0))

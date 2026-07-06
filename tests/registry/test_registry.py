@@ -9,9 +9,7 @@ from promptline.core.types import Candidate, ModuleState
 from promptline.registry.registry import PromptRegistry
 
 
-def _candidate(
-    instruction: str = "Answer.", parent_ids: list[str] | None = None
-) -> Candidate:
+def _candidate(instruction: str = "Answer.", parent_ids: list[str] | None = None) -> Candidate:
     return Candidate(
         id=f"cand-{instruction}",
         modules={"main": ModuleState(instruction=instruction)},
@@ -124,8 +122,7 @@ def test_history_rows_appended(registry: PromptRegistry, tmp_path: Path) -> None
 
     conn = sqlite3.connect(str(tmp_path / ".promptline" / "registry.db"))
     rows = conn.execute(
-        "SELECT prompt_id, action FROM activation_history "
-        "WHERE program = ? ORDER BY id",
+        "SELECT prompt_id, action FROM activation_history WHERE program = ? ORDER BY id",
         ("main",),
     ).fetchall()
     conn.close()

@@ -37,9 +37,7 @@ def paired_bootstrap_ci(
         raise ValueError("deltas must not be empty")
     rng = np.random.default_rng(rng_seed)
     n = arr.size
-    boot_means: np.ndarray = np.mean(
-        rng.choice(arr, size=(n_boot, n), replace=True), axis=1
-    )
+    boot_means: np.ndarray = np.mean(rng.choice(arr, size=(n_boot, n), replace=True), axis=1)
     mean_delta = float(np.mean(arr))
     ci_low = float(np.percentile(boot_means, 100.0 * alpha / 2))
     ci_high = float(np.percentile(boot_means, 100.0 * (1.0 - alpha / 2)))
@@ -85,9 +83,7 @@ def bootstrap_pvalue(
     obs_mean = float(np.mean(arr))
     # Centre deltas at 0 for the null distribution.
     centred = arr - obs_mean
-    boot_means: np.ndarray = np.mean(
-        rng.choice(centred, size=(n_boot, n), replace=True), axis=1
-    )
+    boot_means: np.ndarray = np.mean(rng.choice(centred, size=(n_boot, n), replace=True), axis=1)
     count = int(np.sum(np.abs(boot_means) >= abs(obs_mean)))
     return (1 + count) / (n_boot + 1)
 
@@ -140,8 +136,5 @@ def min_examples_warning(n: int, floor: int = 50) -> str | None:
         A human-readable warning when ``n < floor``, otherwise ``None``.
     """
     if n < floor:
-        return (
-            f"Warning: only {n} examples (fewer than {floor}); "
-            "estimates may be unreliable."
-        )
+        return f"Warning: only {n} examples (fewer than {floor}); estimates may be unreliable."
     return None

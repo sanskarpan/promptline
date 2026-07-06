@@ -2,6 +2,7 @@
 
 Real components throughout; only the LLM is a scripted FakeLLMClient.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -56,9 +57,7 @@ async def test_full_pipeline_offline(tmp_path: Path) -> None:
 
     assert cert.passed is True
     assert cert.kappa >= 0.6
-    assert cert.n_holdout == len(
-        [r for r in calibrator.holdout if r.reference_output is not None]
-    )
+    assert cert.n_holdout == len([r for r in calibrator.holdout if r.reference_output is not None])
     cert_path = tmp_path / "certificates" / "helpfulness.json"
     cert.save(cert_path)
 
@@ -67,9 +66,7 @@ async def test_full_pipeline_offline(tmp_path: Path) -> None:
     seed = seed_for(program)
     run_dir = tmp_path / "runs" / "gepa-e2e"
     client = make_pipeline_client()
-    optimizer = GEPA(
-        minibatch_size=3, max_iterations=4, use_merge=False, run_dir=run_dir
-    )
+    optimizer = GEPA(minibatch_size=3, max_iterations=4, use_merge=False, run_dir=run_dir)
     result = await optimizer.optimize(
         program=program,
         seed=seed,
@@ -88,9 +85,7 @@ async def test_full_pipeline_offline(tmp_path: Path) -> None:
     assert (run_dir / "events.jsonl").exists()
 
     # ---- (3) Statistical gate: best challenges the seed --------------------
-    settings = GateSettings(
-        min_examples=50, require_certificate_path=cert_path, min_kappa=0.6
-    )
+    settings = GateSettings(min_examples=50, require_certificate_path=cert_path, min_kappa=0.6)
     report = await run_gate(
         program=program,
         incumbent=seed,
@@ -129,9 +124,7 @@ async def test_full_pipeline_offline(tmp_path: Path) -> None:
         etag = resp.headers["ETag"]
         assert etag == f'"{best.id}"'
 
-        cached = http.get(
-            "/prompts/support/active", headers={"If-None-Match": etag}
-        )
+        cached = http.get("/prompts/support/active", headers={"If-None-Match": etag})
         assert cached.status_code == 304
 
 

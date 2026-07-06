@@ -8,6 +8,7 @@ lowers ``gate.min_examples`` to 10 so the small dev (20) / val (15) fixtures
 clear the gate's size refusals — mirroring the documented toy-run advice in
 examples/support-assistant/README.md.
 """
+
 from __future__ import annotations
 
 import json
@@ -114,18 +115,11 @@ def _run_chain(tmp_path: Path) -> None:
     )
 
     # ---- calibrate: judge echoes each holdout human label (kappa == 1) ------
-    holdout = Dataset.from_jsonl(gold_path).split(
-        {"dev": 0.5, "holdout": 0.5}, seed=0
-    )["holdout"]
+    holdout = Dataset.from_jsonl(gold_path).split({"dev": 0.5, "holdout": 0.5}, seed=0)["holdout"]
     calibrate_script = tmp_path / "fake_calibrate.json"
     calibrate_script.write_text(
         json.dumps(
-            {
-                "responses": [
-                    f"[[reasoning]]: ok\n[[score]]: {int(r.human_label)}"
-                    for r in holdout
-                ]
-            }
+            {"responses": [f"[[reasoning]]: ok\n[[score]]: {int(r.human_label)}" for r in holdout]}
         )
     )
     result = runner.invoke(
@@ -135,9 +129,7 @@ def _run_chain(tmp_path: Path) -> None:
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
-    cert = CalibrationCertificate.load(
-        registry_dir / "certificates" / "helpfulness.json"
-    )
+    cert = CalibrationCertificate.load(registry_dir / "certificates" / "helpfulness.json")
     assert cert.passed and cert.kappa >= 0.6
 
     # ---- optimize (gepa): scripted reflection injects the sentinel ----------
@@ -186,8 +178,10 @@ def _run_chain(tmp_path: Path) -> None:
     )
     registry.register(baseline, PROGRAM)
     result = runner.invoke(
-        app, ["registry", "activate", "baseline-1"],
-        env=task_env, catch_exceptions=False,
+        app,
+        ["registry", "activate", "baseline-1"],
+        env=task_env,
+        catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
     active = registry.get_active(PROGRAM)
@@ -220,9 +214,10 @@ def _run_chain(tmp_path: Path) -> None:
         assert resp.status_code == 200
         assert resp.json()["prompt_id"] == best_id
         etag = resp.headers["ETag"]
-        assert http.get(
-            f"/prompts/{PROGRAM}/active", headers={"If-None-Match": etag}
-        ).status_code == 304
+        assert (
+            http.get(f"/prompts/{PROGRAM}/active", headers={"If-None-Match": etag}).status_code
+            == 304
+        )
         # The calibration certificate is visible on the control plane too.
         certs = http.get("/judges/certificates").json()
         assert len(certs) == 1 and certs[0]["passed"] is True

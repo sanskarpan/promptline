@@ -42,9 +42,7 @@ def _two_output_program() -> PromptProgram:
 
 def _candidate(program: PromptProgram | None = None) -> Candidate:
     if program is None:
-        return Candidate.seed(
-            modules={"main": ModuleState(instruction="Answer the question.")}
-        )
+        return Candidate.seed(modules={"main": ModuleState(instruction="Answer the question.")})
     return Candidate.seed(
         modules={m.name: ModuleState(instruction=m.signature.instruction) for m in program.modules}
     )
@@ -61,6 +59,7 @@ def _examples(n: int) -> list[Example]:
 def _fixed_metric(score: float):
     def metric(example: Example, prediction) -> MetricResult:
         return MetricResult(score=score, feedback="ok")
+
     return metric
 
 
@@ -197,9 +196,7 @@ def test_eval_report_n() -> None:
 async def test_evaluate_mean_score_all_same() -> None:
     fake = FakeLLMClient(script=["[[answer]]: ok" for _ in range(4)])
     harness = EvalHarness(fake, _cfg())
-    report = await harness.evaluate(
-        _program(), _candidate(), _examples(4), _fixed_metric(0.5)
-    )
+    report = await harness.evaluate(_program(), _candidate(), _examples(4), _fixed_metric(0.5))
     assert report.n == 4
     assert report.mean_score == pytest.approx(0.5)
     assert report.truncated is False
@@ -215,9 +212,7 @@ async def test_evaluate_mean_score_scripted() -> None:
         return MetricResult(score=next(scores_iter))
 
     harness = EvalHarness(fake, _cfg(), concurrency=1)
-    report = await harness.evaluate(
-        _program(), _candidate(), _examples(3), varying_metric
-    )
+    report = await harness.evaluate(_program(), _candidate(), _examples(3), varying_metric)
     assert report.mean_score == pytest.approx(0.5)
 
 
@@ -343,9 +338,7 @@ async def test_concurrency_limit_respected() -> None:
 async def test_results_ordered_by_example_idx() -> None:
     fake = FakeLLMClient(script=["[[answer]]: ok" for _ in range(5)])
     harness = EvalHarness(fake, _cfg(), concurrency=5)
-    report = await harness.evaluate(
-        _program(), _candidate(), _examples(5), _fixed_metric(1.0)
-    )
+    report = await harness.evaluate(_program(), _candidate(), _examples(5), _fixed_metric(1.0))
     idxs = [r.example_idx for r in report.per_example]
     assert idxs == sorted(idxs)
     assert idxs == list(range(5))
@@ -386,9 +379,7 @@ async def test_crashed_example_does_not_kill_eval() -> None:
     # With concurrency=1 (sequential) the 5th LLM call (example index 4) raises.
     client = _FailOnNthCallClient(fail_on_call=5)
     harness = EvalHarness(client, _cfg(), concurrency=1)
-    report = await harness.evaluate(
-        _program(), _candidate(), _examples(10), _fixed_metric(1.0)
-    )
+    report = await harness.evaluate(_program(), _candidate(), _examples(10), _fixed_metric(1.0))
 
     assert report.n == 10
     failed = [r for r in report.per_example if r.failed]

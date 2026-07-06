@@ -256,9 +256,7 @@ class EvalHarness:
                     failed=prediction.failed,
                 )
 
-        tasks = [
-            asyncio.create_task(run_one(i, ex)) for i, ex in enumerate(examples)
-        ]
+        tasks = [asyncio.create_task(run_one(i, ex)) for i, ex in enumerate(examples)]
         await asyncio.gather(*tasks)
 
         per_example = [r for r in results if r is not None]

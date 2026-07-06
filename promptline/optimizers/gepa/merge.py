@@ -5,6 +5,7 @@ against their common ancestor using the "triplet rule": a parent that diverged
 from the ancestor is assumed to carry a useful learned mutation for that
 module.
 """
+
 from __future__ import annotations
 
 import random
@@ -16,9 +17,7 @@ from promptline.core.types import Candidate, ModuleState
 def ancestor_ids(candidate_id: str, pool: dict[str, Candidate]) -> set[str]:
     """All (transitive) proper ancestors of *candidate_id* found in *pool*."""
     seen: set[str] = set()
-    queue: deque[str] = deque(
-        pool[candidate_id].parent_ids if candidate_id in pool else []
-    )
+    queue: deque[str] = deque(pool[candidate_id].parent_ids if candidate_id in pool else [])
     while queue:
         current = queue.popleft()
         if current in seen:
@@ -98,6 +97,4 @@ def merge_candidates(
         else:
             pick = m1
         merged[name] = pick.model_copy(deep=True)
-    return parent1.child(
-        modules=merged, optimizer=optimizer, extra_parents=(parent2.id,)
-    )
+    return parent1.child(modules=merged, optimizer=optimizer, extra_parents=(parent2.id,))

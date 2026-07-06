@@ -1,4 +1,5 @@
 """Tests for GEPA reflection prompt/parsing and system-aware merge."""
+
 from __future__ import annotations
 
 import random
@@ -194,16 +195,10 @@ def test_triplet_rule_truth_table() -> None:
 
 def test_triplet_rule_tie_break_is_seeded() -> None:
     ancestor = Candidate.seed(modules={"m": ModuleState(instruction="base")})
-    p1 = ancestor.child(
-        modules={"m": ModuleState(instruction="p1")}, optimizer="gepa"
-    )
-    p2 = ancestor.child(
-        modules={"m": ModuleState(instruction="p2")}, optimizer="gepa"
-    )
+    p1 = ancestor.child(modules={"m": ModuleState(instruction="p1")}, optimizer="gepa")
+    p2 = ancestor.child(modules={"m": ModuleState(instruction="p2")}, optimizer="gepa")
     picks = {
-        merge_candidates(
-            p1, p2, ancestor, 0.5, 0.5, random.Random(seed)
-        ).modules["m"].instruction
+        merge_candidates(p1, p2, ancestor, 0.5, 0.5, random.Random(seed)).modules["m"].instruction
         for seed in range(20)
     }
     # Tie-break picks from both parents across seeds, never the ancestor.

@@ -12,6 +12,7 @@ temporary workspace containing:
 then serves the API + built dashboard (``web/dist``) on port
 ``PROMPTLINE_FIXTURE_PORT`` (default 8788).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -113,9 +114,7 @@ def main() -> None:
 
     web_dist = Path(__file__).resolve().parents[2] / "web" / "dist"
     if not (web_dist / "index.html").exists():
-        raise SystemExit(
-            "web/dist/index.html not found — run `npm run build` in web/ first"
-        )
+        raise SystemExit("web/dist/index.html not found — run `npm run build` in web/ first")
 
     app = create_app(registry, run_manager, web_dist=web_dist)
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

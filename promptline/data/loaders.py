@@ -95,9 +95,7 @@ def _map_mtbench_row(row: dict[str, Any]) -> Record:
     conv_a: list[dict[str, str]] = row["conversation_a"]
     conv_b: list[dict[str, str]] = row["conversation_b"]
 
-    user_turns = [
-        Turn(role=t["role"], content=t["content"]) for t in conv_a if t["role"] == "user"
-    ]
+    user_turns = [Turn(role=t["role"], content=t["content"]) for t in conv_a if t["role"] == "user"]
 
     return Record(
         conversation=user_turns,

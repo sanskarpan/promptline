@@ -9,6 +9,7 @@ it to write a better one.
     reasoning about task instructions.  See arXiv:2309.03409 and the follow-up
     analysis at arXiv:2405.10276 for guidance on model selection.
 """
+
 from __future__ import annotations
 
 import random
@@ -171,9 +172,7 @@ class OPRO(Optimizer):
             return trainset
 
         seed_batch = _pick_examples()
-        seed_report = await harness.evaluate(
-            program, seed, seed_batch, metric, budget
-        )
+        seed_report = await harness.evaluate(program, seed, seed_batch, metric, budget)
         seed_score = seed_report.mean_score
 
         all_candidates: list[Candidate] = [seed]
@@ -223,10 +222,7 @@ class OPRO(Optimizer):
                 # user message so that a CachingClient keyed on LLMCall.key()
                 # cannot collapse all proposals within a step to the same cached
                 # response.
-                nonce_content = (
-                    meta_prompt
-                    + f"\nProposal #{i + 1} of {self.candidates_per_step}."
-                )
+                nonce_content = meta_prompt + f"\nProposal #{i + 1} of {self.candidates_per_step}."
                 llm_call = LLMCall(
                     model=proposer_model,
                     messages=(Message(role="user", content=nonce_content),),
@@ -253,9 +249,7 @@ class OPRO(Optimizer):
 
                 # Evaluate candidate on minibatch or full trainset.
                 batch = _pick_examples()
-                report = await harness.evaluate(
-                    program, candidate, batch, metric, budget
-                )
+                report = await harness.evaluate(program, candidate, batch, metric, budget)
                 cand_score = report.mean_score
                 all_scores[candidate.id] = cand_score
 
@@ -272,9 +266,9 @@ class OPRO(Optimizer):
                 trajectory.append((new_instruction, cand_score))
                 if len(trajectory) > self.max_trajectory:
                     # Keep the top-scoring entries.
-                    trajectory = sorted(
-                        trajectory, key=lambda t: t[1], reverse=True
-                    )[: self.max_trajectory]
+                    trajectory = sorted(trajectory, key=lambda t: t[1], reverse=True)[
+                        : self.max_trajectory
+                    ]
 
         # ----------------------------------------------------------------
         # Pick best

@@ -1,4 +1,5 @@
 """CLI tests using typer.testing.CliRunner."""
+
 from __future__ import annotations
 
 import json
@@ -112,6 +113,7 @@ def test_version_prints_version() -> None:
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
     from promptline import __version__
+
     assert __version__ in result.output
 
 
@@ -120,6 +122,7 @@ def test_version_flag_prints_version() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
     from promptline import __version__
+
     assert __version__ in result.output
 
 
@@ -130,10 +133,7 @@ def test_version_flag_prints_version() -> None:
 
 def _make_examples(n: int = 3) -> list[dict]:
     """Create n examples where inputs.question and labels.answer are set."""
-    return [
-        {"inputs": {"question": f"q{i}"}, "labels": {"answer": f"q{i}"}}
-        for i in range(n)
-    ]
+    return [{"inputs": {"question": f"q{i}"}, "labels": {"answer": f"q{i}"}} for i in range(n)]
 
 
 def _make_fake_responses(n_examples: int = 3) -> list[str]:
@@ -156,10 +156,14 @@ def test_optimize_bootstrap_exit_0(tmp_path: Path) -> None:
         app,
         [
             "optimize",
-            "--optimizer", "bootstrap",
-            "--config", str(cfg_path),
-            "--data", str(data_path),
-            "--budget", "10",
+            "--optimizer",
+            "bootstrap",
+            "--config",
+            str(cfg_path),
+            "--data",
+            str(data_path),
+            "--budget",
+            "10",
         ],
         env=env,
         catch_exceptions=False,
@@ -167,6 +171,7 @@ def test_optimize_bootstrap_exit_0(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     # Output should contain a score (some decimal number).
     import re
+
     assert re.search(r"\d+\.\d+", result.output), (
         f"Expected a numeric score in output. Got:\n{result.output}"
     )
@@ -199,10 +204,14 @@ def test_optimize_opro_exit_0(tmp_path: Path) -> None:
         app,
         [
             "optimize",
-            "--optimizer", "opro",
-            "--config", str(cfg_path),
-            "--data", str(data_path),
-            "--budget", "10",
+            "--optimizer",
+            "opro",
+            "--config",
+            str(cfg_path),
+            "--data",
+            str(data_path),
+            "--budget",
+            "10",
         ],
         env=env,
         catch_exceptions=False,
@@ -230,17 +239,19 @@ def test_optimize_bootstrap_rs_budget_zero_exits_cleanly(tmp_path: Path) -> None
         app,
         [
             "optimize",
-            "--optimizer", "bootstrap-rs",
-            "--config", str(cfg_path),
-            "--data", str(data_path),
-            "--budget", "0",
+            "--optimizer",
+            "bootstrap-rs",
+            "--config",
+            str(cfg_path),
+            "--data",
+            str(data_path),
+            "--budget",
+            "0",
         ],
         env=env,
         catch_exceptions=False,
     )
-    assert result.exit_code == 0, (
-        f"Expected exit 0 with --budget 0. Got:\n{result.output}"
-    )
+    assert result.exit_code == 0, f"Expected exit 0 with --budget 0. Got:\n{result.output}"
     assert "Traceback" not in result.output
 
 
@@ -250,8 +261,10 @@ def test_optimize_missing_config(tmp_path: Path) -> None:
         app,
         [
             "optimize",
-            "--config", str(tmp_path / "nonexistent.yaml"),
-            "--data", str(tmp_path / "d.jsonl"),
+            "--config",
+            str(tmp_path / "nonexistent.yaml"),
+            "--data",
+            str(tmp_path / "d.jsonl"),
         ],
     )
     assert result.exit_code != 0
@@ -265,8 +278,10 @@ def test_optimize_missing_data(tmp_path: Path) -> None:
         app,
         [
             "optimize",
-            "--config", str(cfg_path),
-            "--data", str(tmp_path / "missing.jsonl"),
+            "--config",
+            str(cfg_path),
+            "--data",
+            str(tmp_path / "missing.jsonl"),
         ],
     )
     assert result.exit_code != 0
@@ -338,10 +353,7 @@ def test_calibrate_perfect_agreement_exit_0_and_saves_cert(tmp_path: Path) -> No
     # Judge echoes each holdout human label, in holdout order.
     _write_fake_script(
         fake_path,
-        [
-            f"[[reasoning]]: ok\n[[score]]: {int(r.human_label)}"
-            for r in holdout
-        ],
+        [f"[[reasoning]]: ok\n[[score]]: {int(r.human_label)}" for r in holdout],
     )
 
     env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
@@ -350,10 +362,14 @@ def test_calibrate_perfect_agreement_exit_0_and_saves_cert(tmp_path: Path) -> No
             app,
             [
                 "calibrate",
-                "--gold", str(gold_path),
-                "--criterion", "helpfulness",
-                "--threshold", "0.6",
-                "--config", str(cfg_path),
+                "--gold",
+                str(gold_path),
+                "--criterion",
+                "helpfulness",
+                "--threshold",
+                "0.6",
+                "--config",
+                str(cfg_path),
             ],
             env=env,
             catch_exceptions=False,
@@ -385,9 +401,12 @@ def test_calibrate_disagreement_exit_1(tmp_path: Path) -> None:
             app,
             [
                 "calibrate",
-                "--gold", str(gold_path),
-                "--criterion", "helpfulness",
-                "--config", str(cfg_path),
+                "--gold",
+                str(gold_path),
+                "--criterion",
+                "helpfulness",
+                "--config",
+                str(cfg_path),
             ],
             env=env,
         )
@@ -411,10 +430,7 @@ def test_calibrate_respects_n_limit(tmp_path: Path) -> None:
     holdout = limited.split({"dev": 0.5, "holdout": 0.5}, seed=0)["holdout"]
     _write_fake_script(
         fake_path,
-        [
-            f"[[reasoning]]: ok\n[[score]]: {int(r.human_label)}"
-            for r in holdout
-        ],
+        [f"[[reasoning]]: ok\n[[score]]: {int(r.human_label)}" for r in holdout],
     )
 
     env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
@@ -423,9 +439,12 @@ def test_calibrate_respects_n_limit(tmp_path: Path) -> None:
             app,
             [
                 "calibrate",
-                "--gold", str(gold_path),
-                "--n", "10",
-                "--config", str(cfg_path),
+                "--gold",
+                str(gold_path),
+                "--n",
+                "10",
+                "--config",
+                str(cfg_path),
             ],
             env=env,
             catch_exceptions=False,
@@ -446,8 +465,10 @@ def test_calibrate_missing_gold_exits_nonzero(tmp_path: Path) -> None:
         app,
         [
             "calibrate",
-            "--gold", str(tmp_path / "missing.jsonl"),
-            "--config", str(cfg_path),
+            "--gold",
+            str(tmp_path / "missing.jsonl"),
+            "--config",
+            str(cfg_path),
         ],
     )
     assert result.exit_code != 0
@@ -461,9 +482,7 @@ def test_calibrate_missing_gold_exits_nonzero(tmp_path: Path) -> None:
 def test_data_prepare_demo_forwards_to_demo_setup(tmp_path: Path) -> None:
     """data prepare --demo must forward to `demo setup` and exit 0."""
     workspace = tmp_path / "ws"
-    result = runner.invoke(
-        app, ["data", "prepare", "--demo", "--offline", "--dir", str(workspace)]
-    )
+    result = runner.invoke(app, ["data", "prepare", "--demo", "--offline", "--dir", str(workspace)])
     assert result.exit_code == 0, result.output
     assert (workspace / "promptline.yaml").exists()
 
@@ -495,10 +514,14 @@ def test_optimize_gepa_registers_prompt(tmp_path: Path) -> None:
         app,
         [
             "optimize",
-            "--optimizer", "gepa",
-            "--config", str(cfg_path),
-            "--data", str(data_path),
-            "--budget", "8",
+            "--optimizer",
+            "gepa",
+            "--config",
+            str(cfg_path),
+            "--data",
+            str(data_path),
+            "--budget",
+            "8",
         ],
         env=env,
         catch_exceptions=False,
@@ -533,10 +556,14 @@ def test_optimize_protegi_exit_0_and_registers(tmp_path: Path) -> None:
         app,
         [
             "optimize",
-            "--optimizer", "protegi",
-            "--config", str(cfg_path),
-            "--data", str(data_path),
-            "--budget", "10",
+            "--optimizer",
+            "protegi",
+            "--config",
+            str(cfg_path),
+            "--data",
+            str(data_path),
+            "--budget",
+            "10",
         ],
         env=env,
         catch_exceptions=False,
@@ -564,10 +591,14 @@ def test_optimize_mipro_exit_0_and_registers(tmp_path: Path) -> None:
         app,
         [
             "optimize",
-            "--optimizer", "mipro",
-            "--config", str(cfg_path),
-            "--data", str(data_path),
-            "--budget", "20",
+            "--optimizer",
+            "mipro",
+            "--config",
+            str(cfg_path),
+            "--data",
+            str(data_path),
+            "--budget",
+            "20",
         ],
         env=env,
         catch_exceptions=False,
@@ -594,10 +625,14 @@ def test_optimize_resume_rejected_for_non_gepa(tmp_path: Path) -> None:
         app,
         [
             "optimize",
-            "--optimizer", "bootstrap",
-            "--config", str(cfg_path),
-            "--data", str(data_path),
-            "--resume", "someid",
+            "--optimizer",
+            "bootstrap",
+            "--config",
+            str(cfg_path),
+            "--data",
+            str(data_path),
+            "--resume",
+            "someid",
         ],
         env=env,
     )
@@ -616,15 +651,9 @@ def _seed_gate_registry(registry_dir: Path):
     from promptline.registry.registry import PromptRegistry
 
     registry = PromptRegistry(registry_dir)
-    base = Candidate(
-        id="base-1", modules={"main": ModuleState(instruction="base answer")}
-    )
-    good = Candidate(
-        id="good-1", modules={"main": ModuleState(instruction="good answer")}
-    )
-    meh = Candidate(
-        id="meh-1", modules={"main": ModuleState(instruction="meh answer")}
-    )
+    base = Candidate(id="base-1", modules={"main": ModuleState(instruction="base answer")})
+    good = Candidate(id="good-1", modules={"main": ModuleState(instruction="good answer")})
+    meh = Candidate(id="meh-1", modules={"main": ModuleState(instruction="meh answer")})
     registry.register(base, "main")
     registry.register(good, "main")
     registry.register(meh, "main")
@@ -644,17 +673,11 @@ def _write_gate_fixture(tmp_path: Path, min_examples: int = 20):
     val_path = tmp_path / "val.jsonl"
     _write_jsonl(
         dev_path,
-        [
-            {"inputs": {"question": f"d{i}"}, "labels": {"answer": "RIGHT"}}
-            for i in range(25)
-        ],
+        [{"inputs": {"question": f"d{i}"}, "labels": {"answer": "RIGHT"}} for i in range(25)],
     )
     _write_jsonl(
         val_path,
-        [
-            {"inputs": {"question": f"v{i}"}, "labels": {"answer": "RIGHT"}}
-            for i in range(12)
-        ],
+        [{"inputs": {"question": f"v{i}"}, "labels": {"answer": "RIGHT"}} for i in range(12)],
     )
     fake_path = tmp_path / "fake_script.json"
     fake_path.write_text(
@@ -662,9 +685,7 @@ def _write_gate_fixture(tmp_path: Path, min_examples: int = 20):
             {
                 # Candidate 'good answer' solves every example; everyone
                 # else (base/meh) answers WRONG.
-                "keyed": [
-                    {"contains": "good answer", "response": "[[answer]]: RIGHT"}
-                ],
+                "keyed": [{"contains": "good answer", "response": "[[answer]]: RIGHT"}],
                 "responses": ["[[answer]]: WRONG"],
             }
         )
@@ -680,10 +701,14 @@ def test_gate_requires_active_baseline(tmp_path: Path) -> None:
         app,
         [
             "gate",
-            "--candidate", "good-1",
-            "--dev", str(dev_path),
-            "--val", str(val_path),
-            "--config", str(cfg_path),
+            "--candidate",
+            "good-1",
+            "--dev",
+            str(dev_path),
+            "--val",
+            str(val_path),
+            "--config",
+            str(cfg_path),
         ],
         env=env,
     )
@@ -709,10 +734,14 @@ def test_gate_promotes_better_candidate(tmp_path: Path) -> None:
         app,
         [
             "gate",
-            "--candidate", "good-1",
-            "--dev", str(dev_path),
-            "--val", str(val_path),
-            "--config", str(cfg_path),
+            "--candidate",
+            "good-1",
+            "--dev",
+            str(dev_path),
+            "--val",
+            str(val_path),
+            "--config",
+            str(cfg_path),
         ],
         env=env,
         catch_exceptions=False,
@@ -740,10 +769,14 @@ def test_gate_rejects_null_candidate_exit_1(tmp_path: Path) -> None:
         app,
         [
             "gate",
-            "--candidate", "meh-1",
-            "--dev", str(dev_path),
-            "--val", str(val_path),
-            "--config", str(cfg_path),
+            "--candidate",
+            "meh-1",
+            "--dev",
+            str(dev_path),
+            "--val",
+            str(val_path),
+            "--config",
+            str(cfg_path),
         ],
         env=env,
         catch_exceptions=False,
@@ -765,10 +798,14 @@ def test_gate_refusal_on_small_dev_exit_2(tmp_path: Path) -> None:
         app,
         [
             "gate",
-            "--candidate", "good-1",
-            "--dev", str(dev_path),
-            "--val", str(val_path),
-            "--config", str(cfg_path),
+            "--candidate",
+            "good-1",
+            "--dev",
+            str(dev_path),
+            "--val",
+            str(val_path),
+            "--config",
+            str(cfg_path),
         ],
         env=env,
     )
@@ -785,10 +822,14 @@ def test_gate_unknown_candidate_exit_2(tmp_path: Path) -> None:
         app,
         [
             "gate",
-            "--candidate", "ghost",
-            "--dev", str(dev_path),
-            "--val", str(val_path),
-            "--config", str(cfg_path),
+            "--candidate",
+            "ghost",
+            "--dev",
+            str(dev_path),
+            "--val",
+            str(val_path),
+            "--config",
+            str(cfg_path),
         ],
         env=env,
     )
@@ -808,7 +849,8 @@ def test_registry_list_show_activate_rollback(tmp_path: Path) -> None:
 
     # list shows all registered prompts.
     listing = runner.invoke(
-        app, ["registry", "list", "--config", str(cfg_path)],
+        app,
+        ["registry", "list", "--config", str(cfg_path)],
         catch_exceptions=False,
     )
     assert listing.exit_code == 0, listing.output
@@ -817,7 +859,8 @@ def test_registry_list_show_activate_rollback(tmp_path: Path) -> None:
 
     # show prints the instruction.
     show = runner.invoke(
-        app, ["registry", "show", "good-1", "--config", str(cfg_path)],
+        app,
+        ["registry", "show", "good-1", "--config", str(cfg_path)],
         catch_exceptions=False,
     )
     assert show.exit_code == 0, show.output
@@ -826,29 +869,29 @@ def test_registry_list_show_activate_rollback(tmp_path: Path) -> None:
 
     # show unknown id fails.
     assert (
-        runner.invoke(
-            app, ["registry", "show", "nope", "--config", str(cfg_path)]
-        ).exit_code
-        == 1
+        runner.invoke(app, ["registry", "show", "nope", "--config", str(cfg_path)]).exit_code == 1
     )
 
     # activate two prompts then rollback to the first.
     assert (
         runner.invoke(
-            app, ["registry", "activate", "base-1", "--config", str(cfg_path)],
+            app,
+            ["registry", "activate", "base-1", "--config", str(cfg_path)],
             catch_exceptions=False,
         ).exit_code
         == 0
     )
     assert (
         runner.invoke(
-            app, ["registry", "activate", "good-1", "--config", str(cfg_path)],
+            app,
+            ["registry", "activate", "good-1", "--config", str(cfg_path)],
             catch_exceptions=False,
         ).exit_code
         == 0
     )
     rollback = runner.invoke(
-        app, ["registry", "rollback", "--config", str(cfg_path)],
+        app,
+        ["registry", "rollback", "--config", str(cfg_path)],
         catch_exceptions=False,
     )
     assert rollback.exit_code == 0, rollback.output
@@ -856,18 +899,11 @@ def test_registry_list_show_activate_rollback(tmp_path: Path) -> None:
     assert active is not None and active[0] == "base-1"
 
     # rollback with no further history fails cleanly.
-    assert (
-        runner.invoke(
-            app, ["registry", "rollback", "--config", str(cfg_path)]
-        ).exit_code
-        == 1
-    )
+    assert runner.invoke(app, ["registry", "rollback", "--config", str(cfg_path)]).exit_code == 1
 
     # activate unknown prompt fails.
     assert (
-        runner.invoke(
-            app, ["registry", "activate", "ghost", "--config", str(cfg_path)]
-        ).exit_code
+        runner.invoke(app, ["registry", "activate", "ghost", "--config", str(cfg_path)]).exit_code
         == 1
     )
 
@@ -936,9 +972,7 @@ def test_optimize_malformed_jsonl_exits_2_clean(tmp_path: Path) -> None:
     fake_path = tmp_path / "fake.json"
     _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
     # First line valid, second line broken.
-    data_path.write_text(
-        '{"inputs": {"question": "q0"}, "labels": {"answer": "a0"}}\n{bad json\n'
-    )
+    data_path.write_text('{"inputs": {"question": "q0"}, "labels": {"answer": "a0"}}\n{bad json\n')
     _write_fake_script(fake_path, ["[[answer]]: a0"])
 
     env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
@@ -989,10 +1023,14 @@ def test_gate_budget_max_cost_wired_through(tmp_path: Path) -> None:
             app,
             [
                 "gate",
-                "--candidate", "good-1",
-                "--dev", str(dev_path),
-                "--val", str(val_path),
-                "--config", str(cfg_path),
+                "--candidate",
+                "good-1",
+                "--dev",
+                str(dev_path),
+                "--val",
+                str(val_path),
+                "--config",
+                str(cfg_path),
             ],
             env=env,
         )
@@ -1048,10 +1086,14 @@ def _write_judge_fake_script(path: Path) -> None:
 def _judge_optimize_args(cfg_path: Path, data_path: Path) -> list[str]:
     return [
         "optimize",
-        "--optimizer", "bootstrap",
-        "--config", str(cfg_path),
-        "--data", str(data_path),
-        "--budget", "10",
+        "--optimizer",
+        "bootstrap",
+        "--config",
+        str(cfg_path),
+        "--data",
+        str(data_path),
+        "--budget",
+        "10",
     ]
 
 
@@ -1102,7 +1144,9 @@ def test_optimize_judge_with_passing_certificate_runs(tmp_path: Path) -> None:
 
     env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
     result = runner.invoke(
-        app, _judge_optimize_args(cfg_path, data_path), env=env,
+        app,
+        _judge_optimize_args(cfg_path, data_path),
+        env=env,
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
@@ -1127,7 +1171,9 @@ def test_optimize_judge_explicit_certificate_path(tmp_path: Path) -> None:
 
     env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
     result = runner.invoke(
-        app, _judge_optimize_args(cfg_path, data_path), env=env,
+        app,
+        _judge_optimize_args(cfg_path, data_path),
+        env=env,
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
@@ -1165,7 +1211,9 @@ def test_optimize_exact_match_prints_metric_line(tmp_path: Path) -> None:
 
     env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
     result = runner.invoke(
-        app, _judge_optimize_args(cfg_path, data_path), env=env,
+        app,
+        _judge_optimize_args(cfg_path, data_path),
+        env=env,
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
@@ -1188,10 +1236,14 @@ def test_gate_judge_without_certificate_refuses(tmp_path: Path) -> None:
         app,
         [
             "gate",
-            "--candidate", "good-1",
-            "--dev", str(dev_path),
-            "--val", str(val_path),
-            "--config", str(cfg_path),
+            "--candidate",
+            "good-1",
+            "--dev",
+            str(dev_path),
+            "--val",
+            str(val_path),
+            "--config",
+            str(cfg_path),
         ],
         env=env,
     )
@@ -1213,13 +1265,9 @@ def test_serve_warns_when_dashboard_not_built(tmp_path: Path, monkeypatch) -> No
     cfg_path = tmp_path / "promptline.yaml"
     _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
 
-    monkeypatch.setattr(
-        cli_main, "_web_dist_path", lambda: tmp_path / "no-dist"
-    )
+    monkeypatch.setattr(cli_main, "_web_dist_path", lambda: tmp_path / "no-dist")
     with patch("uvicorn.run") as fake_run:
-        result = runner.invoke(
-            app, ["serve", "--config", str(cfg_path)], catch_exceptions=False
-        )
+        result = runner.invoke(app, ["serve", "--config", str(cfg_path)], catch_exceptions=False)
     assert result.exit_code == 0, result.output
     flat = " ".join(result.output.split())  # rich wraps long lines
     assert "dashboard not built" in flat
@@ -1241,8 +1289,6 @@ def test_serve_no_warning_when_dashboard_built(tmp_path: Path, monkeypatch) -> N
     (dist / "index.html").write_text("<html></html>")
     monkeypatch.setattr(cli_main, "_web_dist_path", lambda: dist)
     with patch("uvicorn.run"):
-        result = runner.invoke(
-            app, ["serve", "--config", str(cfg_path)], catch_exceptions=False
-        )
+        result = runner.invoke(app, ["serve", "--config", str(cfg_path)], catch_exceptions=False)
     assert result.exit_code == 0, result.output
     assert "dashboard not built" not in result.output

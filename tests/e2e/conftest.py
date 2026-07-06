@@ -12,6 +12,7 @@ PromptRegistry, FastAPI app) and replace only the LLM with a scripted
   output (``GOLD-<label>-<i>``); the judge client parses the sentinel back out,
   which gives exact (or deliberately broken) judge/human agreement.
 """
+
 from __future__ import annotations
 
 import re
@@ -48,10 +49,7 @@ def support_program() -> PromptProgram:
 
 def seed_for(program: PromptProgram) -> Candidate:
     return Candidate.seed(
-        modules={
-            m.name: ModuleState(instruction=m.signature.instruction)
-            for m in program.modules
-        }
+        modules={m.name: ModuleState(instruction=m.signature.instruction) for m in program.modules}
     )
 
 
@@ -92,10 +90,7 @@ def make_pipeline_client(
         blob = "\n".join(m.content for m in call.messages)
         # GEPA reflection.
         if "Diagnose the failures" in blob:
-            return (
-                "The answers never cite sources.\n"
-                f"```\n{improved_instruction}\n```"
-            )
+            return f"The answers never cite sources.\n```\n{improved_instruction}\n```"
         # OPRO trajectory proposer.
         if "<INS>" in blob:
             return f"<INS>{improved_instruction}</INS>"

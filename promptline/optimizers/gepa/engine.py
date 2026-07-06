@@ -7,6 +7,7 @@ reflection over minibatch traces and feedback, and accepts the child only on a
 strict minibatch improvement.  Periodically, two frontier candidates from
 different lineages are recombined with a system-aware merge (Appendix F).
 """
+
 from __future__ import annotations
 
 import inspect
@@ -230,9 +231,7 @@ class GEPA(Optimizer):
                 output = "(module did not run)"
             feedback = mr.per_module.get(module_name) or mr.feedback
             examples.append(
-                ReflectionExample(
-                    inputs=inputs, output=output, score=mr.score, feedback=feedback
-                )
+                ReflectionExample(inputs=inputs, output=output, score=mr.score, feedback=feedback)
             )
 
         prompt = build_reflection_prompt(
@@ -258,9 +257,7 @@ class GEPA(Optimizer):
         modules: dict[str, ModuleState] = {}
         for name, mod_state in candidate.modules.items():
             if name == module_name:
-                modules[name] = ModuleState(
-                    instruction=instruction, demos=list(mod_state.demos)
-                )
+                modules[name] = ModuleState(instruction=instruction, demos=list(mod_state.demos))
             else:
                 modules[name] = mod_state.model_copy(deep=True)
         return candidate.child(modules=modules, optimizer=GEPA.name)
@@ -352,10 +349,7 @@ class GEPA(Optimizer):
                 )
             )
 
-        accepted = (
-            not truncated
-            and scores[child.id] >= max(scores[p1_id], scores[p2_id])
-        )
+        accepted = not truncated and scores[child.id] >= max(scores[p1_id], scores[p2_id])
         emit(
             RunEvent.now(
                 "merge_attempted",
@@ -365,9 +359,7 @@ class GEPA(Optimizer):
             )
         )
         if accepted:
-            await self._full_eval(
-                state, program, child, d_pareto, metric, budget, harness, emit
-            )
+            await self._full_eval(state, program, child, d_pareto, metric, budget, harness, emit)
             state.accepted_count += 1
             self._checkpoint(state, budget)
         return accepted
@@ -441,14 +433,11 @@ class GEPA(Optimizer):
                 # If a pool candidate has identical module content, treat it as
                 # the seed (no re-eval, no duplicate).
                 matching = next(
-                    (cid for cid, cand in state.pool.items()
-                     if cand.modules == seed.modules),
+                    (cid for cid, cand in state.pool.items() if cand.modules == seed.modules),
                     None,
                 )
                 if matching is None:
-                    raise ValueError(
-                        "resume pool does not contain the provided seed"
-                    )
+                    raise ValueError("resume pool does not contain the provided seed")
                 # else: identical candidate already in pool; skip re-eval.
             else:
                 await self._full_eval(
@@ -461,8 +450,14 @@ class GEPA(Optimizer):
             for cid in list(state.partial):
                 if not budget.exhausted:
                     await self._full_eval(
-                        state, program, state.pool[cid], d_pareto, metric,
-                        budget, harness, _emit,
+                        state,
+                        program,
+                        state.pool[cid],
+                        d_pareto,
+                        metric,
+                        budget,
+                        harness,
+                        _emit,
                     )
 
         # ----------------------------------------------------------------
@@ -470,13 +465,15 @@ class GEPA(Optimizer):
         # ----------------------------------------------------------------
         while state.iteration < self.max_iterations and not budget.exhausted:
             state.iteration += 1
-            _emit(RunEvent.now(
-                "budget_tick",
-                rollouts_used=budget.rollouts_used,
-                cost_used=budget.cost_used,
-                max_rollouts=budget.max_rollouts,
-                max_cost_usd=budget.max_cost_usd,
-            ))
+            _emit(
+                RunEvent.now(
+                    "budget_tick",
+                    rollouts_used=budget.rollouts_used,
+                    cost_used=budget.cost_used,
+                    max_rollouts=budget.max_rollouts,
+                    max_cost_usd=budget.max_cost_usd,
+                )
+            )
 
             do_merge = (
                 self.use_merge
@@ -488,8 +485,15 @@ class GEPA(Optimizer):
                 state.merges_done += 1
                 state.accepts_since_merge = 0
                 await self._attempt_merge(
-                    state, program, d_feedback, d_pareto, metric, budget, harness,
-                    rng, _emit,
+                    state,
+                    program,
+                    d_feedback,
+                    d_pareto,
+                    metric,
+                    budget,
+                    harness,
+                    rng,
+                    _emit,
                 )
                 continue
 
@@ -505,9 +509,7 @@ class GEPA(Optimizer):
             batch = rng.sample(d_feedback, min(self.minibatch_size, len(d_feedback)))
 
             # (d) Run the parent on the minibatch, keeping traces.
-            parent_run = await self._run_minibatch(
-                program, parent, batch, metric, budget, harness
-            )
+            parent_run = await self._run_minibatch(program, parent, batch, metric, budget, harness)
             if parent_run is None:
                 break  # budget wall mid-minibatch
             parent_score = self._mean(parent_run)
@@ -539,9 +541,7 @@ class GEPA(Optimizer):
             )
 
             # (f) Score the child on the same minibatch; strict acceptance.
-            child_run = await self._run_minibatch(
-                program, child, batch, metric, budget, harness
-            )
+            child_run = await self._run_minibatch(program, child, batch, metric, budget, harness)
             if child_run is None:
                 break
             child_score = self._mean(child_run)
@@ -559,9 +559,7 @@ class GEPA(Optimizer):
                 continue
 
             # (g) Accepted: full-eval on D_pareto and checkpoint.
-            await self._full_eval(
-                state, program, child, d_pareto, metric, budget, harness, _emit
-            )
+            await self._full_eval(state, program, child, d_pareto, metric, budget, harness, _emit)
             state.accepted_count += 1
             state.accepts_since_merge += 1
             self._checkpoint(state, budget)

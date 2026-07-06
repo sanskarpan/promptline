@@ -1,4 +1,5 @@
 """Integration tests for the GEPA engine."""
+
 from __future__ import annotations
 
 import random
@@ -29,10 +30,7 @@ def _program() -> PromptProgram:
 
 def _seed(program: PromptProgram) -> Candidate:
     return Candidate.seed(
-        modules={
-            m.name: ModuleState(instruction=m.signature.instruction)
-            for m in program.modules
-        }
+        modules={m.name: ModuleState(instruction=m.signature.instruction) for m in program.modules}
     )
 
 
@@ -93,9 +91,7 @@ async def test_improvement_loop_accepts_better_child() -> None:
     program = _program()
     seed = _seed(program)
     client = _client(f"Answer the question. {MARKER} sources.")
-    result = await GEPA(
-        minibatch_size=2, max_iterations=3, use_merge=False
-    ).optimize(
+    result = await GEPA(minibatch_size=2, max_iterations=3, use_merge=False).optimize(
         program,
         seed,
         _trainset(),
@@ -122,9 +118,7 @@ async def test_strict_acceptance_rejects_non_improving_child() -> None:
     # Reflection proposes an instruction without the marker: child score ==
     # parent score, so strict (>) acceptance must reject it.
     client = _client("Answer the question carefully.")
-    result = await GEPA(
-        minibatch_size=2, max_iterations=3, use_merge=False
-    ).optimize(
+    result = await GEPA(minibatch_size=2, max_iterations=3, use_merge=False).optimize(
         program,
         seed,
         _trainset(),
@@ -146,9 +140,7 @@ async def test_budget_wall_terminates_within_cap() -> None:
     program = _program()
     seed = _seed(program)
     budget = Budget(max_rollouts=5)
-    result = await GEPA(
-        minibatch_size=2, max_iterations=50, use_merge=False
-    ).optimize(
+    result = await GEPA(minibatch_size=2, max_iterations=50, use_merge=False).optimize(
         program,
         seed,
         _trainset(),
@@ -175,8 +167,12 @@ async def test_checkpoint_and_resume(tmp_path: Path) -> None:
     first = await GEPA(
         minibatch_size=2, max_iterations=1, use_merge=False, run_dir=run_dir
     ).optimize(
-        program, seed, _trainset(), _marker_metric,
-        Budget(max_rollouts=100), _harness(client),
+        program,
+        seed,
+        _trainset(),
+        _marker_metric,
+        Budget(max_rollouts=100),
+        _harness(client),
     )
     assert (run_dir / "checkpoint.json").exists()
     first_ids = {c.id for c in first.candidates}
@@ -185,8 +181,12 @@ async def test_checkpoint_and_resume(tmp_path: Path) -> None:
     second = await GEPA(
         minibatch_size=2, max_iterations=5, use_merge=False, resume_from=run_dir
     ).optimize(
-        program, seed, _trainset(), _marker_metric,
-        Budget(max_rollouts=100), _harness(client),
+        program,
+        seed,
+        _trainset(),
+        _marker_metric,
+        Budget(max_rollouts=100),
+        _harness(client),
     )
     second_ids = {c.id for c in second.candidates}
     # Pool is a superset with candidate ids preserved; no re-evaluated seed.
@@ -269,14 +269,19 @@ async def test_merge_accepts_complementary_child() -> None:
     examples = [Example(inputs={"question": f"Q{i}?"}) for i in range(4)]
 
     accepted = await engine._attempt_merge(
-        state, _two_module_program(), examples, examples[:2], metric,
-        Budget(max_rollouts=100), _harness(_merge_client()),
-        random.Random(0), emit,
+        state,
+        _two_module_program(),
+        examples,
+        examples[:2],
+        metric,
+        Budget(max_rollouts=100),
+        _harness(_merge_client()),
+        random.Random(0),
+        emit,
     )
 
     assert accepted is True
-    merged = next(cand for cid, cand in state.pool.items()
-                  if cid not in {ancestor.id, b.id, c.id})
+    merged = next(cand for cid, cand in state.pool.items() if cid not in {ancestor.id, b.id, c.id})
     # Triplet rule: each mutated module comes from the parent that mutated it.
     assert merged.modules["m1"].instruction == "Draft. B-MUT"
     assert merged.modules["m2"].instruction == "Finalize. C-MUT"
@@ -305,9 +310,15 @@ async def test_merge_rejected_when_child_scores_below_parents() -> None:
     examples = [Example(inputs={"question": f"Q{i}?"}) for i in range(4)]
 
     accepted = await GEPA(minibatch_size=2)._attempt_merge(
-        state, _two_module_program(), examples, examples[:2], metric,
-        Budget(max_rollouts=100), _harness(_merge_client()),
-        random.Random(0), emit,
+        state,
+        _two_module_program(),
+        examples,
+        examples[:2],
+        metric,
+        Budget(max_rollouts=100),
+        _harness(_merge_client()),
+        random.Random(0),
+        emit,
     )
 
     assert accepted is False
@@ -363,8 +374,14 @@ async def test_full_eval_truncated_marks_partial() -> None:
     budget = Budget(max_rollouts=2)
     events: list[RunEvent] = []
     await GEPA(minibatch_size=2)._full_eval(
-        state, program, seed, d_pareto, _marker_metric,
-        budget, _harness(_client("plain")), events.append,
+        state,
+        program,
+        seed,
+        d_pareto,
+        _marker_metric,
+        budget,
+        _harness(_client("plain")),
+        events.append,
     )
     assert seed.id in state.partial
     assert len(state.scores[seed.id]) == 4  # 0.0-filled alignment
@@ -373,6 +390,7 @@ async def test_full_eval_truncated_marks_partial() -> None:
 async def test_resume_repairs_partial_vector(tmp_path: Path) -> None:
     """Resume with fresh budget re-evaluates partial candidates; clears partial flag."""
     import json
+
     program = _program()
     seed = _seed(program)
     trainset = _trainset(8)
@@ -380,10 +398,16 @@ async def test_resume_repairs_partial_vector(tmp_path: Path) -> None:
 
     # Phase 1: budget so tight only 2 of 4 pareto examples evaluated → partial
     await GEPA(
-        minibatch_size=2, n_pareto=4, max_iterations=0, use_merge=False,
+        minibatch_size=2,
+        n_pareto=4,
+        max_iterations=0,
+        use_merge=False,
         run_dir=run_dir,
     ).optimize(
-        program, seed, trainset, _marker_metric,
+        program,
+        seed,
+        trainset,
+        _marker_metric,
         Budget(max_rollouts=2),
         _harness(_client("plain")),  # 0.0 scores
     )
@@ -393,10 +417,16 @@ async def test_resume_repairs_partial_vector(tmp_path: Path) -> None:
 
     # Phase 2: resume with generous budget and a scoring client → repair
     result = await GEPA(
-        minibatch_size=2, n_pareto=4, max_iterations=0, use_merge=False,
+        minibatch_size=2,
+        n_pareto=4,
+        max_iterations=0,
+        use_merge=False,
         resume_from=run_dir,
     ).optimize(
-        program, seed, trainset, _marker_metric,
+        program,
+        seed,
+        trainset,
+        _marker_metric,
         Budget(max_rollouts=100),
         _harness(_always_marker_client()),  # 1.0 scores
     )
@@ -415,7 +445,9 @@ async def test_budget_tick_emitted_monotonically() -> None:
     seed = _seed(program)
     events, emit = _collector()
     await GEPA(minibatch_size=2, max_iterations=3, use_merge=False).optimize(
-        program, seed, _trainset(),
+        program,
+        seed,
+        _trainset(),
         _marker_metric,
         Budget(max_rollouts=100),
         _harness(_client(f"Answer. {MARKER} sources.")),
@@ -439,11 +471,13 @@ async def test_resume_seed_guard_identical_modules(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     client = _client(f"Answer. {MARKER}")
 
-    await GEPA(
-        minibatch_size=2, max_iterations=1, use_merge=False, run_dir=run_dir
-    ).optimize(
-        program, seed, _trainset(), _marker_metric,
-        Budget(max_rollouts=100), _harness(client),
+    await GEPA(minibatch_size=2, max_iterations=1, use_merge=False, run_dir=run_dir).optimize(
+        program,
+        seed,
+        _trainset(),
+        _marker_metric,
+        Budget(max_rollouts=100),
+        _harness(client),
     )
 
     # Build a new seed with the SAME modules but a new id (simulates re-init)
@@ -453,8 +487,12 @@ async def test_resume_seed_guard_identical_modules(tmp_path: Path) -> None:
     second = await GEPA(
         minibatch_size=2, max_iterations=1, use_merge=False, resume_from=run_dir
     ).optimize(
-        program, new_seed, _trainset(), _marker_metric,
-        Budget(max_rollouts=100), _harness(client),
+        program,
+        new_seed,
+        _trainset(),
+        _marker_metric,
+        Budget(max_rollouts=100),
+        _harness(client),
     )
     # Original seed id still in pool; no duplicate added
     assert seed.id in {c.id for c in second.candidates}
@@ -464,15 +502,18 @@ async def test_resume_seed_guard_identical_modules(tmp_path: Path) -> None:
 async def test_resume_seed_guard_raises_on_mismatch(tmp_path: Path) -> None:
     """On resume, if seed modules don't match any pool candidate, raise ValueError."""
     import pytest
+
     program = _program()
     seed = _seed(program)
     run_dir = tmp_path / "run"
 
-    await GEPA(
-        minibatch_size=2, max_iterations=1, use_merge=False, run_dir=run_dir
-    ).optimize(
-        program, seed, _trainset(), _marker_metric,
-        Budget(max_rollouts=100), _harness(_client(f"Answer. {MARKER}")),
+    await GEPA(minibatch_size=2, max_iterations=1, use_merge=False, run_dir=run_dir).optimize(
+        program,
+        seed,
+        _trainset(),
+        _marker_metric,
+        Budget(max_rollouts=100),
+        _harness(_client(f"Answer. {MARKER}")),
     )
 
     alien_seed = Candidate.seed(
@@ -482,8 +523,12 @@ async def test_resume_seed_guard_raises_on_mismatch(tmp_path: Path) -> None:
         await GEPA(
             minibatch_size=2, max_iterations=1, use_merge=False, resume_from=run_dir
         ).optimize(
-            program, alien_seed, _trainset(), _marker_metric,
-            Budget(max_rollouts=100), _harness(_client("plain")),
+            program,
+            alien_seed,
+            _trainset(),
+            _marker_metric,
+            Budget(max_rollouts=100),
+            _harness(_client("plain")),
         )
 
 

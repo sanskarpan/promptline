@@ -6,6 +6,7 @@ attaches them as few-shot demos to the seed candidate.
 ``BootstrapRandomSearch`` samples multiple subsets of those demonstrations and
 picks the one that scores highest on a held-out validation split.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -59,9 +60,7 @@ async def collect_demo_pool(
             break
 
         # Stop once every module has enough demos.
-        all_full = all(
-            len(module_demos[m.name]) >= max_per_module for m in program.modules
-        )
+        all_full = all(len(module_demos[m.name]) >= max_per_module for m in program.modules)
         if all_full:
             break
 
@@ -313,9 +312,7 @@ class BootstrapRandomSearch(Optimizer):
                 # Collect from first module trace.
                 for trace in prediction.traces:
                     if trace.module == first_mod and trace.parsed is not None:
-                        pool.append(
-                            Demo(inputs=dict(example.inputs), outputs=trace.parsed)
-                        )
+                        pool.append(Demo(inputs=dict(example.inputs), outputs=trace.parsed))
                         break
 
         # Sample n_subsets random subsets from the pool and evaluate each.
@@ -374,9 +371,7 @@ class BootstrapRandomSearch(Optimizer):
             )
 
             # Evaluate on validation set.
-            report = await harness.evaluate(
-                program, candidate, val_set, metric, budget
-            )
+            report = await harness.evaluate(program, candidate, val_set, metric, budget)
             score = report.mean_score
             all_scores[candidate.id] = score
 

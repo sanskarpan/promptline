@@ -5,6 +5,7 @@ their instructions live in a :class:`~promptline.core.types.Candidate` and can
 be meta-optimized like any other program (see
 :mod:`promptline.judge.calibrator`).
 """
+
 from __future__ import annotations
 
 import re
@@ -78,10 +79,7 @@ def build_pointwise_instruction(criterion: RubricCriterion) -> str:
     lo, hi = criterion.scale
     lines = [
         "You are an impartial expert evaluator of assistant responses.",
-        (
-            f"Evaluate the response on the criterion '{criterion.name}': "
-            f"{criterion.description}"
-        ),
+        (f"Evaluate the response on the criterion '{criterion.name}': {criterion.description}"),
         *_scale_lines(criterion),
         "Reason step by step about the response quality first.",
         "Do not reward length or verbosity.",
@@ -98,10 +96,7 @@ def build_pairwise_instruction(criterion: RubricCriterion) -> str:
     lines = [
         "You are an impartial expert evaluator comparing two assistant "
         "responses (A and B) to the same conversation.",
-        (
-            f"Compare them on the criterion '{criterion.name}': "
-            f"{criterion.description}"
-        ),
+        (f"Compare them on the criterion '{criterion.name}': {criterion.description}"),
         "Reason step by step about the quality of both responses first.",
         "Do not reward length or verbosity.",
         "Do not let the order of presentation influence your judgement.",
@@ -156,9 +151,7 @@ class PointwiseJudge:
             outputs=["reasoning", "score"],
             name=JUDGE_MODULE,
         )
-        self.seed_candidate = Candidate.seed(
-            {JUDGE_MODULE: ModuleState(instruction=instruction)}
-        )
+        self.seed_candidate = Candidate.seed({JUDGE_MODULE: ModuleState(instruction=instruction)})
 
     # ------------------------------------------------------------------
     # Parsing
@@ -257,8 +250,10 @@ class PointwiseJudge:
 
         async def metric(example: Example, prediction: Prediction) -> MetricResult:
             outputs = prediction.outputs
-            response = outputs.get("answer") or outputs.get("response") or (
-                next(reversed(outputs.values()), "") if outputs else ""
+            response = (
+                outputs.get("answer")
+                or outputs.get("response")
+                or (next(reversed(outputs.values()), "") if outputs else "")
             )
             inputs = {
                 "conversation": example.inputs.get("conversation", ""),
@@ -307,9 +302,7 @@ class PairwiseJudge:
             outputs=["reasoning", "verdict"],
             name=JUDGE_MODULE,
         )
-        self.seed_candidate = Candidate.seed(
-            {JUDGE_MODULE: ModuleState(instruction=instruction)}
-        )
+        self.seed_candidate = Candidate.seed({JUDGE_MODULE: ModuleState(instruction=instruction)})
 
     @staticmethod
     def parse_verdict(text: str) -> Verdict | None:
@@ -359,8 +352,7 @@ class PairwiseJudge:
         )
         if verdict_1 is None or verdict_2_swapped is None:
             raise JudgeError(
-                f"judge produced no parseable verdict for criterion "
-                f"'{self.criterion.name}'"
+                f"judge produced no parseable verdict for criterion '{self.criterion.name}'"
             )
         verdict_2 = _UNSWAP[verdict_2_swapped]
         if verdict_1 == verdict_2:
@@ -369,7 +361,6 @@ class PairwiseJudge:
         else:
             winner = "TIE"
             reasoning = (
-                f"Position-swap disagreement: [A-order] {reasoning_1} | "
-                f"[B-order] {reasoning_2}"
+                f"Position-swap disagreement: [A-order] {reasoning_1} | [B-order] {reasoning_2}"
             )
         return PairwiseVerdict(winner=winner, reasoning=reasoning)

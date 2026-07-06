@@ -1,4 +1,5 @@
 """Tests for promptline.judge.judge (Task 15)."""
+
 from __future__ import annotations
 
 import pytest
@@ -96,7 +97,9 @@ async def test_pointwise_k_sampling_averages_and_drops_unparseable() -> None:
 
 async def test_pointwise_k_sampling_distinct_seeds_and_temperature() -> None:
     judge = PointwiseJudge(
-        criterion=CRITERION, judge_model="fake/judge", samples=3,
+        criterion=CRITERION,
+        judge_model="fake/judge",
+        samples=3,
         temperature_when_sampling=0.7,
     )
     client = FakeLLMClient(script=[_resp("4"), _resp("3"), _resp("2")])
@@ -180,6 +183,7 @@ async def test_as_metric_accepts_candidate_and_uses_its_instruction() -> None:
 
     optimized_instruction = "CUSTOM-OPTIMIZED-INSTRUCTION-XYZ"
     from promptline.core.types import Candidate
+
     candidate = Candidate.seed({JUDGE_MODULE: ModuleState(instruction=optimized_instruction)})
 
     metric = judge.as_metric(client, candidate=candidate)

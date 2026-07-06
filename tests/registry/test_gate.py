@@ -35,9 +35,7 @@ def _echo_script(call: LLMCall) -> str:
 
 
 def _program() -> PromptProgram:
-    return PromptProgram.simple(
-        instruction="base", inputs=["question"], outputs=["answer"]
-    )
+    return PromptProgram.simple(instruction="base", inputs=["question"], outputs=["answer"])
 
 
 def _cand(instruction: str) -> Candidate:
@@ -340,9 +338,7 @@ async def test_seed_sweep_null_candidates_fwer_controlled() -> None:
     for seed in range(10):
         rng = _random.Random(seed)
         # noise[k][idx] — per-candidate, per-example noise around 0.5.
-        noise = [
-            [rng.gauss(0.0, 0.1) for _ in range(1100)] for _ in range(5)
-        ]
+        noise = [[rng.gauss(0.0, 0.1) for _ in range(1100)] for _ in range(5)]
 
         def metric(example: Example, prediction: Prediction) -> MetricResult:
             answer = prediction.outputs.get("answer", "")

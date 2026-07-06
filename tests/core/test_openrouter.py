@@ -13,6 +13,7 @@ from promptline.core.openrouter import OpenRouterClient
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_call(**kwargs) -> LLMCall:
     return LLMCall(
         model="openai/gpt-4o",

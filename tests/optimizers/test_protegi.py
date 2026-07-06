@@ -1,4 +1,5 @@
 """Tests for the ProTeGi optimizer (textual gradients + racing)."""
+
 from __future__ import annotations
 
 from promptline.core.llm import FakeLLMClient, LLMCall
@@ -26,10 +27,7 @@ def _program() -> PromptProgram:
 
 def _seed(program: PromptProgram) -> Candidate:
     return Candidate.seed(
-        modules={
-            m.name: ModuleState(instruction=m.signature.instruction)
-            for m in program.modules
-        }
+        modules={m.name: ModuleState(instruction=m.signature.instruction) for m in program.modules}
     )
 
 
@@ -167,9 +165,7 @@ async def test_racing_drops_losers() -> None:
     )
 
     racing = [
-        e
-        for e in events
-        if e.type == "minibatch_scored" and e.payload.get("phase") == "racing"
+        e for e in events if e.type == "minibatch_scored" and e.payload.get("phase") == "racing"
     ]
     assert racing, "no racing evaluations happened"
     rounds = sorted({e.payload["racing_round"] for e in racing})
@@ -240,9 +236,7 @@ async def test_determinism_same_seed_same_best() -> None:
     edited = f"Answer the question. {MARKER} sources."
     r1, _ = await _run(_client(edited), rng_seed=7)
     r2, _ = await _run(_client(edited), rng_seed=7)
-    assert (
-        r1.best.modules["main"].instruction == r2.best.modules["main"].instruction
-    )
+    assert r1.best.modules["main"].instruction == r2.best.modules["main"].instruction
 
 
 # ---------------------------------------------------------------------------
@@ -278,9 +272,7 @@ async def test_best_chosen_by_full_eval_score() -> None:
     events: list[RunEvent] = []
     result, _ = await _run(client, events=events, n_rounds=1)
 
-    non_truncated = [
-        e for e in events if e.type == "full_eval" and not e.payload.get("truncated")
-    ]
+    non_truncated = [e for e in events if e.type == "full_eval" and not e.payload.get("truncated")]
     assert non_truncated, "expected at least one non-truncated full_eval event"
     best_event = max(non_truncated, key=lambda e: e.payload["mean_score"])
     assert result.best.id == best_event.payload["candidate_id"]
@@ -348,11 +340,17 @@ def test_format_failures_uses_continuous_threshold() -> None:
     report = EvalReport(
         per_example=[
             ExampleResult(
-                example_idx=0, score=0.65, feedback="meh", cost_usd=0.0,
+                example_idx=0,
+                score=0.65,
+                feedback="meh",
+                cost_usd=0.0,
                 failed=False,
             ),
             ExampleResult(
-                example_idx=1, score=0.75, feedback="good", cost_usd=0.0,
+                example_idx=1,
+                score=0.75,
+                feedback="good",
+                cost_usd=0.0,
                 failed=False,
             ),
         ],

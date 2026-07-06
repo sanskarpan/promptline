@@ -164,12 +164,8 @@ class PromptProgram:
 
             # Few-shot demos: alternating user/assistant pairs.
             for demo in state.demos:
-                demo_user = "\n".join(
-                    f"{k}: {v}" for k, v in demo.inputs.items()
-                )
-                demo_asst = "\n".join(
-                    f"[[{k}]]: {v}" for k, v in demo.outputs.items()
-                )
+                demo_user = "\n".join(f"{k}: {v}" for k, v in demo.inputs.items())
+                demo_asst = "\n".join(f"[[{k}]]: {v}" for k, v in demo.outputs.items())
                 messages.append(Message(role="user", content=demo_user))
                 messages.append(Message(role="assistant", content=demo_asst))
 

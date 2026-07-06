@@ -10,6 +10,7 @@ their observed min/max onto the judge's integer scale and rounded.  When the
 observed human label range already equals the judge scale, the identity
 mapping is used (binning="identity").
 """
+
 from __future__ import annotations
 
 import math
@@ -98,9 +99,7 @@ def require_certificate(
 
 def _usable(record: Record) -> bool:
     """A record is usable when it has a judged response and a scalar label."""
-    return record.reference_output is not None and isinstance(
-        record.human_label, (int, float)
-    )
+    return record.reference_output is not None and isinstance(record.human_label, (int, float))
 
 
 class Calibrator:
@@ -127,9 +126,7 @@ class Calibrator:
     # Binning
     # ------------------------------------------------------------------
 
-    def _bin_human_labels(
-        self, values: list[float]
-    ) -> tuple[list[int], str, float, float]:
+    def _bin_human_labels(self, values: list[float]) -> tuple[list[int], str, float, float]:
         """Map human scalar labels onto the judge's integer scale.
 
         Returns ``(binned, binning_name, vmin, vmax)`` where *vmin*/*vmax* are
@@ -145,9 +142,7 @@ class Calibrator:
         if vmax == vmin:
             mid = round((lo + hi) / 2)
             return [mid] * len(values), "linear-minmax", vmin, vmax
-        binned = [
-            round(lo + (v - vmin) / (vmax - vmin) * (hi - lo)) for v in values
-        ]
+        binned = [round(lo + (v - vmin) / (vmax - vmin) * (hi - lo)) for v in values]
         return binned, "linear-minmax", vmin, vmax
 
     # ------------------------------------------------------------------
@@ -162,8 +157,7 @@ class Calibrator:
         records = [r for r in self.holdout if _usable(r)]
         if not records:
             raise ValueError(
-                "no usable holdout records: each needs reference_output and a "
-                "numeric human_label"
+                "no usable holdout records: each needs reference_output and a numeric human_label"
             )
 
         human_raw = [float(r.human_label) for r in records]  # type: ignore[arg-type]
@@ -232,8 +226,7 @@ class Calibrator:
         records = [r for r in self.dev if _usable(r)]
         if not records:
             raise ValueError(
-                "no usable dev records: each needs reference_output and a "
-                "numeric human_label"
+                "no usable dev records: each needs reference_output and a numeric human_label"
             )
 
         trainset = [

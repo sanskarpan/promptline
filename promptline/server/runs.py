@@ -9,6 +9,7 @@ handed to the coroutine factory so the factory can:
 * Pass ``run_dir`` to GEPA for checkpointing.
 * Derive the ``run_id`` from ``run_dir.name`` for registry bookkeeping.
 """
+
 from __future__ import annotations
 
 import asyncio

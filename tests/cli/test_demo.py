@@ -1,4 +1,5 @@
 """Tests for the `promptline demo` sub-app (offline mode only — hermetic)."""
+
 from __future__ import annotations
 
 import json
@@ -36,9 +37,7 @@ class TestDemoSetupOffline:
         workspace = _setup_offline(tmp_path)
         cfg = load_config(workspace / "promptline.yaml")
         assert isinstance(cfg, PromptlineConfig)
-        assert cfg.program.instruction == (
-            "You are a support agent. Answer the question."
-        )
+        assert cfg.program.instruction == ("You are a support agent. Answer the question.")
         assert cfg.models.task == "meta-llama/llama-3.1-8b-instruct"
         assert cfg.models.reflection == "anthropic/claude-3.5-haiku"
         assert cfg.models.judge == "anthropic/claude-3.5-haiku"

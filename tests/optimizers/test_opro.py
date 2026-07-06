@@ -1,4 +1,5 @@
 """Tests for the OPRO optimizer."""
+
 from __future__ import annotations
 
 import pytest
@@ -25,10 +26,7 @@ def _program() -> PromptProgram:
 
 def _seed(program: PromptProgram) -> Candidate:
     return Candidate.seed(
-        modules={
-            m.name: ModuleState(instruction=m.signature.instruction)
-            for m in program.modules
-        }
+        modules={m.name: ModuleState(instruction=m.signature.instruction) for m in program.modules}
     )
 
 
@@ -86,15 +84,10 @@ async def test_opro_seed_evaluated_first() -> None:
     harness = EvalHarness(client=client, cfg=_model_cfg())
     budget = Budget(max_rollouts=50)
 
-    examples = [
-        Example(inputs={"question": "q"}, labels={"answer": "Paris"})
-        for _ in range(3)
-    ]
+    examples = [Example(inputs={"question": "q"}, labels={"answer": "Paris"}) for _ in range(3)]
 
     opt = OPRO(n_steps=1, candidates_per_step=1, rng_seed=0)
-    result = await opt.optimize(
-        program, seed, examples, _always_pass_metric, budget, harness
-    )
+    result = await opt.optimize(program, seed, examples, _always_pass_metric, budget, harness)
 
     assert seed in result.candidates
     assert seed.id in result.scores
@@ -114,9 +107,7 @@ async def test_opro_best_returned() -> None:
     examples = [Example(inputs={"question": "q"}) for _ in range(3)]
 
     opt = OPRO(n_steps=2, candidates_per_step=2, rng_seed=0)
-    result = await opt.optimize(
-        program, seed, examples, _always_pass_metric, budget, harness
-    )
+    result = await opt.optimize(program, seed, examples, _always_pass_metric, budget, harness)
 
     best_score = result.scores[result.best.id]
     for cand_id, score in result.scores.items():
@@ -158,14 +149,10 @@ async def test_opro_budget_early_stop() -> None:
     harness = EvalHarness(client=client, cfg=_model_cfg())
     budget = Budget(max_rollouts=2)  # very tight
 
-    examples = [
-        Example(inputs={"question": f"q{i}"}) for i in range(5)
-    ]
+    examples = [Example(inputs={"question": f"q{i}"}) for i in range(5)]
 
     opt = OPRO(n_steps=10, candidates_per_step=4, rng_seed=0)
-    result = await opt.optimize(
-        program, seed, examples, _always_pass_metric, budget, harness
-    )
+    result = await opt.optimize(program, seed, examples, _always_pass_metric, budget, harness)
 
     # Should not crash and should still return a valid result.
     assert result.best is not None
@@ -203,18 +190,14 @@ async def test_opro_trajectory_ascending_and_capped() -> None:
 
     max_traj = 5
     opt = OPRO(n_steps=6, candidates_per_step=3, max_trajectory=max_traj, rng_seed=0)
-    result = await opt.optimize(
-        program, seed, examples, _always_pass_metric, budget, harness
-    )
+    result = await opt.optimize(program, seed, examples, _always_pass_metric, budget, harness)
 
     assert len(result.candidates) > 1
     assert len(captured_meta_prompts) > 0, "No proposer calls were captured"
 
     for prompt_text in captured_meta_prompts:
         # Extract score values from lines like: score=0.5000: "..."
-        scores_in_prompt = [
-            float(m) for m in _re.findall(r"score=([\d.]+):", prompt_text)
-        ]
+        scores_in_prompt = [float(m) for m in _re.findall(r"score=([\d.]+):", prompt_text)]
         # Must be in ascending order (worst first, best last).
         assert scores_in_prompt == sorted(scores_in_prompt), (
             f"Trajectory not ascending in meta-prompt: {scores_in_prompt}"
@@ -260,9 +243,7 @@ async def test_opro_proposer_distinct_keys() -> None:
     await opt.optimize(program, seed, examples, _always_pass_metric, budget, harness)
 
     # We should have recorded exactly k proposer calls for step 1.
-    assert len(proposer_calls) == k, (
-        f"Expected {k} proposer calls, got {len(proposer_calls)}"
-    )
+    assert len(proposer_calls) == k, f"Expected {k} proposer calls, got {len(proposer_calls)}"
     keys = [c.key() for c in proposer_calls]
     assert len(set(keys)) == k, (
         f"All {k} proposer calls must have distinct .key() hashes. "
@@ -283,9 +264,7 @@ async def test_opro_minibatch_mode() -> None:
     examples = [Example(inputs={"question": f"q{i}"}) for i in range(10)]
 
     opt = OPRO(n_steps=2, candidates_per_step=1, minibatch_size=3, rng_seed=0)
-    result = await opt.optimize(
-        program, seed, examples, _always_pass_metric, budget, harness
-    )
+    result = await opt.optimize(program, seed, examples, _always_pass_metric, budget, harness)
 
     assert result.best is not None
     # Each eval step uses at most 3 rollouts; with 2 steps + seed eval ≤
@@ -322,14 +301,10 @@ async def test_opro_marker_instruction_rewarded() -> None:
         return MetricResult(score=1.0)
 
     opt = OPRO(n_steps=3, candidates_per_step=2, rng_seed=0)
-    result = await opt.optimize(
-        program, seed, examples, _biased_metric, budget, harness
-    )
+    result = await opt.optimize(program, seed, examples, _biased_metric, budget, harness)
 
     # At least one candidate should have MARKER in its instruction.
-    instr_list = [
-        c.modules[next(iter(c.modules))].instruction for c in result.candidates
-    ]
+    instr_list = [c.modules[next(iter(c.modules))].instruction for c in result.candidates]
     assert any(MARKER in instr for instr in instr_list), (
         f"Expected MARKER in some candidate instruction. Got: {instr_list}"
     )

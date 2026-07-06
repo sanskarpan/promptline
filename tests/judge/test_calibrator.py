@@ -1,4 +1,5 @@
 """Tests for promptline.judge.calibrator (Task 17)."""
+
 from __future__ import annotations
 
 import re
@@ -89,9 +90,7 @@ async def test_scripted_disagreement_fails() -> None:
 
 
 async def test_calibrate_raises_without_usable_records() -> None:
-    records = [
-        Record(conversation=[Turn(role="user", content=f"q{i}")]) for i in range(8)
-    ]
+    records = [Record(conversation=[Turn(role="user", content=f"q{i}")]) for i in range(8)]
     client = FakeLLMClient(script=_echo_script)
     calibrator = Calibrator(_judge(), Dataset(records), client)
     with pytest.raises(ValueError):
@@ -175,9 +174,7 @@ class _StubOptimizer(Optimizer):
         self.trainset_seen = list(trainset)
         report = await harness.evaluate(program, seed, trainset, metric, budget)
         self.calls_after_optimize = len(self._client.calls)
-        return OptimizeResult(
-            best=seed, candidates=[seed], scores={seed.id: report.mean_score}
-        )
+        return OptimizeResult(best=seed, candidates=[seed], scores={seed.id: report.mean_score})
 
 
 async def test_meta_optimize_never_touches_holdout_during_optimization() -> None:
@@ -198,9 +195,7 @@ async def test_meta_optimize_never_touches_holdout_during_optimization() -> None
     # the holdout sentinels may appear in prompts sent during optimization.
     assert optimizer.calls_after_optimize is not None
     optimize_phase = client.calls[: optimizer.calls_after_optimize]
-    prompts = "\n===\n".join(
-        m.content for call in optimize_phase for m in call.messages
-    )
+    prompts = "\n===\n".join(m.content for call in optimize_phase for m in call.messages)
     for record in calibrator.holdout:
         sentinel = record.conversation[0].content.split(" ")[0]  # "REC-<i>"
         assert sentinel + " " not in prompts
@@ -325,9 +320,7 @@ async def test_meta_optimize_metric_rewards_agreement() -> None:
     optimizer = _StubOptimizer(client)
     harness = EvalHarness(client=client, cfg=ModelConfig(task_model="fake/judge"))
 
-    best, _ = await calibrator.meta_optimize(
-        optimizer, harness, Budget(max_rollouts=1000)
-    )
+    best, _ = await calibrator.meta_optimize(optimizer, harness, Budget(max_rollouts=1000))
     # StubOptimizer stored the seed's mean score.
     # echo judge => judge_norm == human_norm on every dev example.
     # (score dict keyed by candidate id)

@@ -5,6 +5,7 @@ gate*: :func:`resolve_metric` returns the calibrated-judge metric whenever the
 ``judge`` config section is enabled and a judge (or task) model is configured,
 and falls back to the exact-match :func:`default_metric` otherwise.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -21,12 +22,9 @@ DEFAULT_RUBRICS: dict[str, str] = {
         "actionable, relevant information."
     ),
     "correctness": (
-        "Whether the response is factually accurate and free of errors or "
-        "unsupported claims."
+        "Whether the response is factually accurate and free of errors or unsupported claims."
     ),
-    "coherence": (
-        "Whether the response is well-structured, consistent, and easy to follow."
-    ),
+    "coherence": ("Whether the response is well-structured, consistent, and easy to follow."),
     "complexity": (
         "The intellectual depth required to write the response "
         "(domain expertise vs. basic language competency)."

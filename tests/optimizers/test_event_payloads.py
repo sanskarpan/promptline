@@ -4,6 +4,7 @@ All producers of ``candidate_proposed`` emit ``parents: [ids...]``; every
 optimizer's ``run_finished`` carries ``best_score`` when the best is known;
 ``budget_tick`` events include the budget ceilings.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -29,10 +30,7 @@ def _program() -> PromptProgram:
 
 def _seed(program: PromptProgram) -> Candidate:
     return Candidate.seed(
-        modules={
-            m.name: ModuleState(instruction=m.signature.instruction)
-            for m in program.modules
-        }
+        modules={m.name: ModuleState(instruction=m.signature.instruction) for m in program.modules}
     )
 
 
@@ -69,9 +67,7 @@ def _collect(events: list[RunEvent], type_: str) -> list[RunEvent]:
 async def _run(opt, metric=_always_pass_metric, budget: Budget | None = None):
     program = _program()
     seed = _seed(program)
-    harness = EvalHarness(
-        client=_multi_client(), cfg=ModelConfig(task_model="fake")
-    )
+    harness = EvalHarness(client=_multi_client(), cfg=ModelConfig(task_model="fake"))
     events: list[RunEvent] = []
     budget = budget or Budget(max_rollouts=60)
     result = await opt.optimize(
@@ -123,9 +119,7 @@ async def test_bootstrap_event_payloads() -> None:
 async def test_bootstrap_rs_event_payloads() -> None:
     from promptline.optimizers.bootstrap import BootstrapRandomSearch
 
-    result, events, seed = await _run(
-        BootstrapRandomSearch(n_subsets=2, subset_size=2, rng_seed=0)
-    )
+    result, events, seed = await _run(BootstrapRandomSearch(n_subsets=2, subset_size=2, rng_seed=0))
     _assert_common(result, events, seed)
 
 
@@ -133,9 +127,7 @@ async def test_bootstrap_rs_event_payloads() -> None:
 async def test_opro_event_payloads() -> None:
     from promptline.optimizers.opro import OPRO
 
-    result, events, seed = await _run(
-        OPRO(n_steps=2, candidates_per_step=1, minibatch_size=2)
-    )
+    result, events, seed = await _run(OPRO(n_steps=2, candidates_per_step=1, minibatch_size=2))
     _assert_common(result, events, seed)
     proposed = _collect(events, "candidate_proposed")
     assert all(e.payload["parents"] == [seed.id] for e in proposed)
@@ -199,9 +191,7 @@ async def test_protegi_event_payloads() -> None:
 async def test_gepa_run_finished_has_best_score() -> None:
     from promptline.optimizers.gepa import GEPA
 
-    result, events, _ = await _run(
-        GEPA(max_iterations=2, minibatch_size=2, n_pareto=2)
-    )
+    result, events, _ = await _run(GEPA(max_iterations=2, minibatch_size=2, n_pareto=2))
     finished = _collect(events, "run_finished")
     assert finished
     assert finished[-1].payload["best_score"] == result.scores[result.best.id]

@@ -11,6 +11,7 @@ selection costs far fewer rollouts than full-evaluating every candidate.
 
 See arXiv:2305.03495 (ProTeGi) and arXiv:2504.16005 (CAPO).
 """
+
 from __future__ import annotations
 
 import math
@@ -175,9 +176,7 @@ class ProTeGi(Optimizer):
         modules: dict[str, ModuleState] = {}
         for name, state in parent.modules.items():
             if name == first_mod:
-                modules[name] = ModuleState(
-                    instruction=new_instruction, demos=list(state.demos)
-                )
+                modules[name] = ModuleState(instruction=new_instruction, demos=list(state.demos))
             else:
                 modules[name] = state.model_copy(deep=True)
         return parent.child(modules=modules, optimizer=self.name)
@@ -266,9 +265,7 @@ class ProTeGi(Optimizer):
             for parent in beam:
                 if budget.exhausted:
                     break
-                batch = rng.sample(
-                    trainset, min(self.minibatch_size, len(trainset))
-                )
+                batch = rng.sample(trainset, min(self.minibatch_size, len(trainset)))
                 report = await harness.evaluate(program, parent, batch, metric, budget)
                 minibatch_scores[parent.id] = report.mean_score
                 _emit(
@@ -376,9 +373,7 @@ class ProTeGi(Optimizer):
                 for cand in survivors:
                     if budget.exhausted:
                         break
-                    report = await harness.evaluate(
-                        program, cand, batch, metric, budget
-                    )
+                    report = await harness.evaluate(program, cand, batch, metric, budget)
                     racing_scores.setdefault(cand.id, []).append(report.mean_score)
                     _emit(
                         RunEvent.now(

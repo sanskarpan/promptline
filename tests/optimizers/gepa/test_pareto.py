@@ -1,4 +1,5 @@
 """Tests for GEPA Pareto selection (Algorithm 2) and GepaState."""
+
 from __future__ import annotations
 
 import random
@@ -117,9 +118,7 @@ def _candidate(instruction: str) -> Candidate:
 def test_state_roundtrip() -> None:
     state = GepaState()
     seed = _candidate("seed")
-    child = seed.child(
-        modules={"main": ModuleState(instruction="child")}, optimizer="gepa"
-    )
+    child = seed.child(modules={"main": ModuleState(instruction="child")}, optimizer="gepa")
     state.add(seed, [0.5, 0.5])
     state.add(child, [1.0, 0.0])
     state.iteration = 7

@@ -1,4 +1,5 @@
 """Tests for promptline.judge.metric_factory — judge-as-metric wiring."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -57,9 +58,7 @@ async def test_build_judge_metric_returns_normalized_score() -> None:
     cfg = _cfg()
     client = FakeLLMClient(script=[_judge_resp("5")])
     metric = build_judge_metric(cfg, client)
-    example = Example(
-        inputs={"conversation": "user: hi"}, labels={"reference": "ref"}
-    )
+    example = Example(inputs={"conversation": "user: hi"}, labels={"reference": "ref"})
     result = await metric(example, _prediction({"answer": "hello"}))
     assert result.score == 1.0  # 5 on a 1-5 scale → 1.0
     # Judge model from config is used in the call.
@@ -127,12 +126,8 @@ def test_resolve_metric_exact_match_when_no_models() -> None:
 
 
 def test_certificate_path_defaults_to_registry_location() -> None:
-    assert resolve_certificate_path(_cfg()) == Path(
-        ".reg/certificates/helpfulness.json"
-    )
+    assert resolve_certificate_path(_cfg()) == Path(".reg/certificates/helpfulness.json")
     explicit = _cfg(judge={"certificate": "/tmp/cert.json"})
     assert resolve_certificate_path(explicit) == Path("/tmp/cert.json")
     other = _cfg(judge={"criterion": "correctness"})
-    assert resolve_certificate_path(other) == Path(
-        ".reg/certificates/correctness.json"
-    )
+    assert resolve_certificate_path(other) == Path(".reg/certificates/correctness.json")

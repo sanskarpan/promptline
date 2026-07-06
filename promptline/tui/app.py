@@ -4,6 +4,7 @@ Four flat panes in the opencode/Hermes terminal aesthetic: SCORE (best-so-far
 plus a sparkline of full-eval means), BUDGET (rollouts progress + cost),
 LINEAGE (candidate tree) and EVENTS (raw event log).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -334,9 +335,7 @@ class PromptlineTUI(App):
         line = Text()
         line.append(stamp, style=DIM)
         line.append(" ")
-        line.append(
-            f"{event.type:<18}", style=f"bold {_TYPE_COLORS.get(event.type, DIM)}"
-        )
+        line.append(f"{event.type:<18}", style=f"bold {_TYPE_COLORS.get(event.type, DIM)}")
         line.append(" ")
         line.append(summarize_payload(event.payload), style="#a0a0a0")
         log.write(line)

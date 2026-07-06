@@ -17,6 +17,7 @@ File formats written into the workspace:
   ``{"inputs": {"conversation": ...}, "labels": {"reference": ...}}`` for
   ``promptline optimize --data``.
 """
+
 from __future__ import annotations
 
 import json
@@ -33,9 +34,7 @@ console = Console()
 demo_app = typer.Typer(name="demo", help="Support-assistant demo pipeline.")
 
 #: Bundled offline fixtures (repo checkout layout: <root>/examples/...).
-FIXTURES_DIR = (
-    Path(__file__).resolve().parents[2] / "examples" / "support-assistant" / "fixtures"
-)
+FIXTURES_DIR = Path(__file__).resolve().parents[2] / "examples" / "support-assistant" / "fixtures"
 
 #: Deliberately mediocre seed instruction — the optimizer's starting point.
 SEED_INSTRUCTION = "You are a support agent. Answer the question."

@@ -1,4 +1,5 @@
 """FastAPI server tests (TestClient against a tmp registry)."""
+
 from __future__ import annotations
 
 import json
@@ -20,17 +21,13 @@ from promptline.server.runs import RunManager
 
 
 def _cand(cand_id: str, instruction: str = "Answer.") -> Candidate:
-    return Candidate(
-        id=cand_id, modules={"main": ModuleState(instruction=instruction)}
-    )
+    return Candidate(id=cand_id, modules={"main": ModuleState(instruction=instruction)})
 
 
 def _make_app(tmp_path: Path, run_starter=None, gate_runner=None):
     registry = PromptRegistry(tmp_path / "registry")
     run_manager = RunManager(tmp_path / "runs")
-    app = create_app(
-        registry, run_manager, run_starter=run_starter, gate_runner=gate_runner
-    )
+    app = create_app(registry, run_manager, run_starter=run_starter, gate_runner=gate_runner)
     return app, registry, run_manager
 
 
@@ -85,21 +82,15 @@ def test_active_prompt_404_then_200_etag_then_304(tmp_path: Path) -> None:
         assert body["activated_at"]
 
         # If-None-Match with quoted ETag → 304.
-        cached = client.get(
-            "/prompts/main/active", headers={"If-None-Match": '"p1"'}
-        )
+        cached = client.get("/prompts/main/active", headers={"If-None-Match": '"p1"'})
         assert cached.status_code == 304
         assert not cached.content
 
         # Bare (unquoted) If-None-Match also matches (strip on compare).
-        cached_bare = client.get(
-            "/prompts/main/active", headers={"If-None-Match": "p1"}
-        )
+        cached_bare = client.get("/prompts/main/active", headers={"If-None-Match": "p1"})
         assert cached_bare.status_code == 304
 
-        stale = client.get(
-            "/prompts/main/active", headers={"If-None-Match": '"other"'}
-        )
+        stale = client.get("/prompts/main/active", headers={"If-None-Match": '"other"'})
         assert stale.status_code == 200
 
 
@@ -127,7 +118,7 @@ def test_runs_lifecycle_and_sse_replay(tmp_path: Path) -> None:
         with client.stream("GET", f"/runs/{run_id}/events") as stream:
             for line in stream.iter_lines():
                 if line.startswith("data:"):
-                    events.append(json.loads(line[len("data:"):].strip()))
+                    events.append(json.loads(line[len("data:") :].strip()))
         assert len(events) == 3
         assert [e["type"] for e in events] == ["budget_tick"] * 3
         assert [e["payload"]["step"] for e in events] == [0, 1, 2]
@@ -191,9 +182,7 @@ def test_gate_endpoint_delegates_to_runner(tmp_path: Path) -> None:
 def test_gate_endpoint_unconfigured_400(tmp_path: Path) -> None:
     app, _, _ = _make_app(tmp_path)
     with TestClient(app) as client:
-        resp = client.post(
-            "/gate", json={"program": "main", "candidate_ids": []}
-        )
+        resp = client.post("/gate", json={"program": "main", "candidate_ids": []})
         assert resp.status_code == 400
 
 
@@ -215,17 +204,10 @@ def test_registry_list_activate_rollback(tmp_path: Path) -> None:
         assert client.post("/registry/main/rollback").status_code == 409
 
         # Activate unknown prompt -> 404.
-        resp = client.post(
-            "/registry/main/activate", json={"prompt_id": "ghost"}
-        )
+        resp = client.post("/registry/main/activate", json={"prompt_id": "ghost"})
         assert resp.status_code == 404
 
-        assert (
-            client.post(
-                "/registry/main/activate", json={"prompt_id": "p1"}
-            ).status_code
-            == 200
-        )
+        assert client.post("/registry/main/activate", json={"prompt_id": "p1"}).status_code == 200
         assert (
             client.post(
                 "/registry/main/activate",
@@ -314,9 +296,7 @@ def test_post_runs_sync_factory_error_returns_400_run_shows_failed(tmp_path: Pat
 
     app, _, _ = _make_app(tmp_path, run_starter=_raising_starter)
     with TestClient(app) as client:
-        resp = client.post(
-            "/runs", json={"optimizer": "bootstrap", "data_path": "/no/such.jsonl"}
-        )
+        resp = client.post("/runs", json={"optimizer": "bootstrap", "data_path": "/no/such.jsonl"})
         assert resp.status_code == 400
         body = resp.json()
         assert "dataset not found" in body.get("detail", "").lower()
@@ -417,14 +397,9 @@ def test_server_run_registers_with_run_id_and_records_eval(tmp_path: Path) -> No
 
     data_path = tmp_path / "data.jsonl"
     fake_path = tmp_path / "fake.json"
-    rows = [
-        {"inputs": {"question": f"q{i}"}, "labels": {"answer": f"q{i}"}}
-        for i in range(3)
-    ]
+    rows = [{"inputs": {"question": f"q{i}"}, "labels": {"answer": f"q{i}"}} for i in range(3)]
     data_path.write_text("\n".join(_json.dumps(r) for r in rows))
-    fake_path.write_text(
-        _json.dumps({"responses": [f"[[answer]]: q{i}" for i in range(3)] * 4})
-    )
+    fake_path.write_text(_json.dumps({"responses": [f"[[answer]]: q{i}" for i in range(3)] * 4}))
 
     env_backup = os.environ.copy()
     os.environ["PROMPTLINE_FAKE_SCRIPT"] = str(fake_path)
@@ -627,19 +602,13 @@ def _gate_parity_fixture(tmp_path: Path):
     val_path = tmp_path / "val.jsonl"
     dev_path.write_text(
         "".join(
-            json.dumps(
-                {"inputs": {"question": f"d{i}"}, "labels": {"answer": "RIGHT"}}
-            )
-            + "\n"
+            json.dumps({"inputs": {"question": f"d{i}"}, "labels": {"answer": "RIGHT"}}) + "\n"
             for i in range(25)
         )
     )
     val_path.write_text(
         "".join(
-            json.dumps(
-                {"inputs": {"question": f"v{i}"}, "labels": {"answer": "RIGHT"}}
-            )
-            + "\n"
+            json.dumps({"inputs": {"question": f"v{i}"}, "labels": {"answer": "RIGHT"}}) + "\n"
             for i in range(12)
         )
     )
@@ -648,9 +617,7 @@ def _gate_parity_fixture(tmp_path: Path):
     fake_path.write_text(
         json.dumps(
             {
-                "keyed": [
-                    {"contains": "good answer", "response": "[[answer]]: RIGHT"}
-                ],
+                "keyed": [{"contains": "good answer", "response": "[[answer]]: RIGHT"}],
                 "responses": ["[[answer]]: WRONG"],
             }
         )
@@ -666,9 +633,7 @@ def test_gate_endpoint_promotes_and_activates_winner(tmp_path: Path) -> None:
 
     from promptline.cli.main import build_app_from_config
 
-    cfg_path, registry, dev_path, val_path, env_backup = _gate_parity_fixture(
-        tmp_path
-    )
+    cfg_path, registry, dev_path, val_path, env_backup = _gate_parity_fixture(tmp_path)
     try:
         server_app = build_app_from_config(str(cfg_path))
         with TestClient(server_app) as client:
@@ -699,9 +664,7 @@ def test_gate_endpoint_promote_false_does_not_activate(tmp_path: Path) -> None:
 
     from promptline.cli.main import build_app_from_config
 
-    cfg_path, registry, dev_path, val_path, env_backup = _gate_parity_fixture(
-        tmp_path
-    )
+    cfg_path, registry, dev_path, val_path, env_backup = _gate_parity_fixture(tmp_path)
     try:
         server_app = build_app_from_config(str(cfg_path))
         with TestClient(server_app) as client:

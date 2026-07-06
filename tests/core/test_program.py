@@ -10,6 +10,7 @@ from promptline.core.types import Candidate, Demo, Example, Field, ModuleState, 
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _cfg(model: str = "test-model") -> ModelConfig:
     return ModelConfig(task_model=model, temperature=0.0, max_tokens=256)
 
@@ -35,9 +36,7 @@ def _multi_output_program() -> PromptProgram:
 
 
 def _multi_output_candidate(instruction: str = "Answer both questions.") -> Candidate:
-    return Candidate.seed(
-        modules={"main": ModuleState(instruction=instruction)}
-    )
+    return Candidate.seed(modules={"main": ModuleState(instruction=instruction)})
 
 
 def _single_candidate(
@@ -86,10 +85,12 @@ def test_prediction_failure_classmethod() -> None:
 
 
 def test_module_names_preserves_order() -> None:
-    prog = PromptProgram(modules=[
-        Module(name="a", signature=Signature("x", [], [])),
-        Module(name="b", signature=Signature("y", [], [])),
-    ])
+    prog = PromptProgram(
+        modules=[
+            Module(name="a", signature=Signature("x", [], [])),
+            Module(name="b", signature=Signature("y", [], [])),
+        ]
+    )
     assert prog.module_names == ["a", "b"]
 
 
@@ -244,20 +245,26 @@ async def test_two_module_program_pipes_outputs() -> None:
         inputs=[Field("city")],
         outputs=[Field("country")],
     )
-    prog = PromptProgram(modules=[
-        Module(name="extract", signature=sig1),
-        Module(name="lookup", signature=sig2),
-    ])
-    candidate = Candidate.seed(modules={
-        "extract": ModuleState(instruction="Extract city."),
-        "lookup": ModuleState(instruction="Name the country for this city."),
-    })
+    prog = PromptProgram(
+        modules=[
+            Module(name="extract", signature=sig1),
+            Module(name="lookup", signature=sig2),
+        ]
+    )
+    candidate = Candidate.seed(
+        modules={
+            "extract": ModuleState(instruction="Extract city."),
+            "lookup": ModuleState(instruction="Name the country for this city."),
+        }
+    )
     example = Example(inputs={"query": "Where is Paris?"})
 
-    fake = FakeLLMClient(script=[
-        "[[city]]: Paris",
-        "[[country]]: France",
-    ])
+    fake = FakeLLMClient(
+        script=[
+            "[[city]]: Paris",
+            "[[country]]: France",
+        ]
+    )
     pred = await prog.run(example, candidate, fake, _cfg())
 
     assert pred.failed is False
@@ -275,6 +282,7 @@ async def test_two_module_program_pipes_outputs() -> None:
 @pytest.mark.asyncio
 async def test_two_module_cost_accumulated() -> None:
     """Total cost is the sum across all LLM calls."""
+
     class _CostFake:
         def __init__(self, costs: list[float]) -> None:
             self._costs = list(costs)
@@ -285,14 +293,20 @@ async def test_two_module_cost_accumulated() -> None:
             return LLMResponse(text="[[out]]: x", cost_usd=self._costs.pop(0))
 
     sig = Signature("Do.", inputs=[Field("inp")], outputs=[Field("out")])
-    prog = PromptProgram(modules=[
-        Module(name="a", signature=sig),
-        Module(name="b", signature=Signature("Do.", inputs=[Field("out")], outputs=[Field("out")])),
-    ])
-    candidate = Candidate.seed(modules={
-        "a": ModuleState(instruction="Do."),
-        "b": ModuleState(instruction="Do."),
-    })
+    prog = PromptProgram(
+        modules=[
+            Module(name="a", signature=sig),
+            Module(
+                name="b", signature=Signature("Do.", inputs=[Field("out")], outputs=[Field("out")])
+            ),
+        ]
+    )
+    candidate = Candidate.seed(
+        modules={
+            "a": ModuleState(instruction="Do."),
+            "b": ModuleState(instruction="Do."),
+        }
+    )
     example = Example(inputs={"inp": "hello"})
 
     fake = _CostFake([0.01, 0.02])

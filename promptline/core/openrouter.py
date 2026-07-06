@@ -45,9 +45,7 @@ class OpenRouterClient:
     ) -> None:
         key = api_key or os.environ.get("OPENROUTER_API_KEY")
         if not key:
-            raise LLMError(
-                "No OpenRouter API key: pass api_key= or set OPENROUTER_API_KEY"
-            )
+            raise LLMError("No OpenRouter API key: pass api_key= or set OPENROUTER_API_KEY")
         self._api_key: str = key
         self._base_url: str = base_url.rstrip("/")
         self._max_retries: int = max_retries
@@ -94,9 +92,7 @@ class OpenRouterClient:
         """
         body: dict = {
             "model": call.model,
-            "messages": [
-                {"role": m.role, "content": m.content} for m in call.messages
-            ],
+            "messages": [{"role": m.role, "content": m.content} for m in call.messages],
             "temperature": call.temperature,
             "max_tokens": call.max_tokens,
             "usage": {"include": True},
@@ -126,9 +122,7 @@ class OpenRouterClient:
                         data = resp.json()
                         text: str = data["choices"][0]["message"]["content"]
                     except (_json.JSONDecodeError, KeyError, IndexError) as exc:
-                        raise LLMError(
-                            f"Malformed response from OpenRouter: {exc}"
-                        ) from exc
+                        raise LLMError(f"Malformed response from OpenRouter: {exc}") from exc
                     usage: dict = data.get("usage", {})
                     return LLMResponse(
                         text=text,
@@ -137,14 +131,10 @@ class OpenRouterClient:
                         cost_usd=float(usage.get("cost", 0.0)),
                     )
                 elif resp.status_code == 429 or resp.status_code >= 500:
-                    last_error = LLMError(
-                        f"HTTP {resp.status_code}: {resp.text[:200]}"
-                    )
+                    last_error = LLMError(f"HTTP {resp.status_code}: {resp.text[:200]}")
                 else:
                     # 4xx other than 429 — no retry
-                    raise LLMError(
-                        f"HTTP {resp.status_code}: {resp.text[:200]}"
-                    )
+                    raise LLMError(f"HTTP {resp.status_code}: {resp.text[:200]}")
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 last_error = LLMError(str(exc))
 

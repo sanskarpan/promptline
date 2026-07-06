@@ -1,4 +1,5 @@
 """Tests for BootstrapFewShot and BootstrapRandomSearch optimizers."""
+
 from __future__ import annotations
 
 import pytest
@@ -25,10 +26,7 @@ def _program() -> PromptProgram:
 
 def _seed(program: PromptProgram) -> Candidate:
     return Candidate.seed(
-        modules={
-            m.name: ModuleState(instruction=m.signature.instruction)
-            for m in program.modules
-        }
+        modules={m.name: ModuleState(instruction=m.signature.instruction) for m in program.modules}
     )
 
 
@@ -74,10 +72,7 @@ async def test_bootstrap_passing_examples_become_demos() -> None:
     harness = EvalHarness(client=client, cfg=_model_cfg())
     budget = Budget(max_rollouts=50)
 
-    examples = [
-        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"})
-        for i in range(5)
-    ]
+    examples = [Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(5)]
     metric = _exact_metric("Paris")
 
     opt = BootstrapFewShot(max_demos=4, threshold=1.0, rng_seed=0)
@@ -100,10 +95,7 @@ async def test_bootstrap_failing_examples_not_collected() -> None:
     harness = EvalHarness(client=client, cfg=_model_cfg())
     budget = Budget(max_rollouts=50)
 
-    examples = [
-        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"})
-        for i in range(5)
-    ]
+    examples = [Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(5)]
     metric = _exact_metric("Paris")  # model says "wrong", so all fail
 
     opt = BootstrapFewShot(max_demos=4, threshold=1.0, rng_seed=0)
@@ -131,8 +123,7 @@ async def test_bootstrap_max_demos_cap() -> None:
     budget = Budget(max_rollouts=50)
 
     examples = [
-        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"})
-        for i in range(10)
+        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(10)
     ]
     metric = _exact_metric("Paris")
 
@@ -157,8 +148,7 @@ async def test_bootstrap_budget_rollout_accounting() -> None:
     budget = Budget(max_rollouts=3)
 
     examples = [
-        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"})
-        for i in range(10)
+        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(10)
     ]
     metric = _exact_metric("Paris")
 
@@ -201,9 +191,7 @@ async def test_bootstrap_demo_content_matches_example() -> None:
     harness = EvalHarness(client=client, cfg=_model_cfg())
     budget = Budget(max_rollouts=50)
 
-    examples = [
-        Example(inputs={"question": "What is the capital of Germany?"})
-    ]
+    examples = [Example(inputs={"question": "What is the capital of Germany?"})]
     metric = _always_pass_metric
 
     opt = BootstrapFewShot(max_demos=4, threshold=1.0, rng_seed=0)
@@ -225,15 +213,10 @@ async def test_bootstrap_result_structure() -> None:
     harness = EvalHarness(client=client, cfg=_model_cfg())
     budget = Budget(max_rollouts=50)
 
-    examples = [
-        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"})
-        for i in range(4)
-    ]
+    examples = [Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(4)]
 
     opt = BootstrapFewShot(max_demos=4, threshold=1.0, rng_seed=0)
-    result = await opt.optimize(
-        program, seed, examples, _always_pass_metric, budget, harness
-    )
+    result = await opt.optimize(program, seed, examples, _always_pass_metric, budget, harness)
 
     assert result.best is not None
     assert seed in result.candidates
@@ -257,8 +240,7 @@ async def test_bootstrap_rs_basic_run() -> None:
     budget = Budget(max_rollouts=100)
 
     examples = [
-        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"})
-        for i in range(10)
+        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(10)
     ]
     metric = _exact_metric("Paris")
 
@@ -294,8 +276,7 @@ async def test_bootstrap_rs_favors_best_subset() -> None:
     budget = Budget(max_rollouts=200)
 
     examples = [
-        Example(inputs={"question": f"q{i}"}, labels={"answer": "marker"})
-        for i in range(12)
+        Example(inputs={"question": f"q{i}"}, labels={"answer": "marker"}) for i in range(12)
     ]
     metric = _exact_metric("marker")
 
@@ -326,10 +307,7 @@ async def test_bootstrap_rs_events_in_order() -> None:
     harness = EvalHarness(client=client, cfg=_model_cfg())
     budget = Budget(max_rollouts=100)
 
-    examples = [
-        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"})
-        for i in range(6)
-    ]
+    examples = [Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(6)]
 
     events: list[RunEvent] = []
     opt = BootstrapRandomSearch(n_subsets=2, subset_size=2, rng_seed=0)
@@ -354,8 +332,7 @@ async def test_bootstrap_rs_budget_respected() -> None:
     budget = Budget(max_rollouts=5)
 
     examples = [
-        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"})
-        for i in range(20)
+        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(20)
     ]
     metric = _exact_metric("Paris")
 
@@ -402,10 +379,7 @@ async def test_bootstrap_tolerates_llm_error() -> None:
 
     examples = [
         Example(inputs={"question": FAIL_Q}, labels={"answer": "Paris"}),  # will crash
-    ] + [
-        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"})
-        for i in range(4)
-    ]
+    ] + [Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(4)]
     metric = _always_pass_metric
 
     opt = BootstrapFewShot(max_demos=4, threshold=1.0, rng_seed=0)
@@ -438,10 +412,7 @@ async def test_bootstrap_rs_tolerates_llm_error() -> None:
 
     examples = [
         Example(inputs={"question": FAIL_Q}, labels={"answer": "Paris"}),  # crashes
-    ] + [
-        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"})
-        for i in range(9)
-    ]
+    ] + [Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(9)]
     metric = _always_pass_metric
 
     opt = BootstrapRandomSearch(
@@ -476,10 +447,7 @@ async def test_bootstrap_score_semantics() -> None:
     harness = EvalHarness(client=client, cfg=_model_cfg())
     budget = Budget(max_rollouts=50)
 
-    examples = [
-        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"})
-        for i in range(4)
-    ]
+    examples = [Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(4)]
     metric = _exact_metric("Paris")
 
     opt = BootstrapFewShot(max_demos=4, threshold=1.0, rng_seed=0)
@@ -504,10 +472,7 @@ async def test_bootstrap_score_semantics_budget_exhausted() -> None:
     # Budget tight enough to be exhausted exactly after collection (3 examples = 3 rollouts).
     budget = Budget(max_rollouts=3)
 
-    examples = [
-        Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"})
-        for i in range(3)
-    ]
+    examples = [Example(inputs={"question": f"q{i}"}, labels={"answer": "Paris"}) for i in range(3)]
     metric = _exact_metric("Paris")
 
     opt = BootstrapFewShot(max_demos=3, threshold=1.0, rng_seed=0)
@@ -562,8 +527,7 @@ async def test_bootstrap_rs_real_discrimination() -> None:
     # 1 MARKER example + 9 filler examples; all have label="magic" so all pass threshold.
     marker_example = Example(inputs={"question": MARKER}, labels={"answer": "magic"})
     filler_examples = [
-        Example(inputs={"question": f"filler_{i}"}, labels={"answer": "magic"})
-        for i in range(9)
+        Example(inputs={"question": f"filler_{i}"}, labels={"answer": "magic"}) for i in range(9)
     ]
     examples = [marker_example] + filler_examples
 
@@ -595,8 +559,7 @@ async def test_bootstrap_rs_real_discrimination() -> None:
     # Best candidate must carry the MARKER demo.
     has_marker = any(MARKER in demo.inputs.get("question", "") for demo in best_demos)
     assert has_marker, (
-        f"Best candidate must contain MARKER demo. "
-        f"Demos: {[d.inputs for d in best_demos]}"
+        f"Best candidate must contain MARKER demo. Demos: {[d.inputs for d in best_demos]}"
     )
 
 
@@ -618,14 +581,16 @@ async def test_bootstrap_default_threshold_accepts_continuous_pass() -> None:
     program = _program()
     seed = _seed(program)
     harness = EvalHarness(client=_fake_client_single_answer(), cfg=_model_cfg())
-    examples = [
-        Example(inputs={"question": f"q{i}"}, labels={}) for i in range(4)
-    ]
+    examples = [Example(inputs={"question": f"q{i}"}, labels={}) for i in range(4)]
 
     opt = BootstrapFewShot(max_demos=4, rng_seed=0)  # default threshold
     assert opt.threshold == 0.7
     result = await opt.optimize(
-        program, seed, examples, _continuous_metric(0.8), Budget(max_rollouts=50),
+        program,
+        seed,
+        examples,
+        _continuous_metric(0.8),
+        Budget(max_rollouts=50),
         harness,
     )
     demos = result.best.modules[program.modules[0].name].demos
@@ -638,13 +603,15 @@ async def test_bootstrap_default_threshold_rejects_continuous_fail() -> None:
     program = _program()
     seed = _seed(program)
     harness = EvalHarness(client=_fake_client_single_answer(), cfg=_model_cfg())
-    examples = [
-        Example(inputs={"question": f"q{i}"}, labels={}) for i in range(4)
-    ]
+    examples = [Example(inputs={"question": f"q{i}"}, labels={}) for i in range(4)]
 
     opt = BootstrapFewShot(max_demos=4, rng_seed=0)
     result = await opt.optimize(
-        program, seed, examples, _continuous_metric(0.6), Budget(max_rollouts=50),
+        program,
+        seed,
+        examples,
+        _continuous_metric(0.6),
+        Budget(max_rollouts=50),
         harness,
     )
     demos = result.best.modules[program.modules[0].name].demos

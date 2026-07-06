@@ -6,6 +6,7 @@ frontier — every candidate that is best on at least one instance survives —
 rather than a single global best, preserving complementary "specialist"
 candidates as stepping stones.
 """
+
 from __future__ import annotations
 
 import random

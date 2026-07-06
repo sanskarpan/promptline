@@ -4,6 +4,7 @@ A :class:`RunEventFeed` is an async iterator over :class:`RunEvent` objects
 sourced from a run's ``events.jsonl`` (optionally tailed while it grows), an
 SSE endpoint (``GET /runs/{id}/events``), or an in-memory list (tests).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -127,7 +128,7 @@ class RunEventFeed:
                     async for line in response.aiter_lines():
                         if not line.startswith("data:"):
                             continue
-                        event = _parse_line(line[len("data:"):])
+                        event = _parse_line(line[len("data:") :])
                         if event is None:
                             continue
                         yield event
