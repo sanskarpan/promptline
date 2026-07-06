@@ -11,7 +11,9 @@ import promptline.tui
 
 
 def test_version():
-    assert promptline.__version__ == "0.1.0"
+    from importlib.metadata import version
+
+    assert promptline.__version__ == version("promptline-opt")
 
 
 def test_subpackages_importable():

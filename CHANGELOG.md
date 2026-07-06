@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-07-06
+
 ### Fixed
 
 Hardening from an adversarial bug-hunt across the whole stack (no correctness
@@ -73,5 +75,6 @@ Initial release. The full `calibrate → optimize → gate → serve` pipeline.
 - **Tests**: 444 offline unit/integration tests, an offline end-to-end suite,
   Playwright dashboard e2e, and an opt-in live smoke test.
 
-[Unreleased]: https://github.com/sanskarpan/promptline/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sanskarpan/promptline/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/sanskarpan/promptline/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sanskarpan/promptline/releases/tag/v0.1.0
