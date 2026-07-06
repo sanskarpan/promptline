@@ -9,6 +9,7 @@ import { LineagePage } from "./pages/LineagePage";
 import { JudgePage } from "./pages/JudgePage";
 import { GatePage } from "./pages/GatePage";
 import { RegistryPage } from "./pages/RegistryPage";
+import { NotFound } from "./pages/NotFound";
 
 // All SPA pages live under /ui/... so hard refreshes on those paths hit the
 // static fallback (index.html) rather than the API's GET /runs endpoints.
@@ -24,6 +25,9 @@ const router = createBrowserRouter([
       { path: "ui/judge", element: <JudgePage /> },
       { path: "ui/gate", element: <GatePage /> },
       { path: "ui/registry", element: <RegistryPage /> },
+      // Catch-all: keep the sidebar/nav and offer a way back instead of the
+      // bare default error boundary.
+      { path: "*", element: <NotFound /> },
     ],
   },
 ]);

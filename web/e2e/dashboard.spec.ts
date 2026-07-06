@@ -81,6 +81,22 @@ test("registry page shows the ACTIVE badge for the gated winner", async ({
   await expect(activeRow).toContainText("1.0000"); // winner's mean score
 });
 
+test("unknown /ui route keeps the sidebar/nav and links back to Runs", async ({
+  page,
+}) => {
+  await page.goto("/ui/bogus");
+  // Sidebar/nav stay visible instead of a bare error boundary.
+  await expect(page.locator(".sidebar .brand .title")).toContainText(
+    "PROMPTLINE",
+  );
+  await expect(
+    page.locator(".sidebar nav").getByRole("link", { name: "Runs" }),
+  ).toBeVisible();
+  await expect(page.getByTestId("not-found")).toBeVisible();
+  await page.getByRole("link", { name: /back to runs/i }).click();
+  await expect(page).toHaveURL(/\/ui\/runs$/);
+});
+
 test("gate page renders the gate form", async ({ page }) => {
   // Form render only: POST /gate needs dev/val dataset paths on the server
   // and the fixture server has no gate_runner wired, so no submission here.

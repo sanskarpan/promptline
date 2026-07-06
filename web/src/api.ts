@@ -37,6 +37,13 @@ export interface RunEvent {
     | "run_finished";
   payload: Record<string, unknown>;
   ts: number;
+  /**
+   * Monotonic per-connection index assigned by {@link openRunEvents}. Resets
+   * to 0 on reconnect so the reducer can drop replayed events (the server
+   * re-streams a running run from offset 0 on every connection). Undefined
+   * for events not sourced from the live SSE stream (e.g. in unit tests).
+   */
+  seq?: number;
 }
 
 export interface StartRunRequest {
@@ -170,6 +177,28 @@ export const api = {
     request<CalibrationCertificate[]>("/judges/certificates"),
 };
 
+/**
+ * Coerce an arbitrary parsed SSE payload into a structurally-valid RunEvent, or
+ * return null if it is not even an object. A malformed event must never reach
+ * the reducer/render: a missing `ts` would make `new Date(NaN)` throw and a
+ * missing `type` would make `type.padEnd(...)` throw, blanking the feed. So we
+ * default `ts` to 0 and `type` to "unknown" rather than crashing.
+ */
+export function sanitizeRunEvent(raw: unknown): RunEvent | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const type = (
+    typeof obj.type === "string" ? obj.type : "unknown"
+  ) as RunEvent["type"];
+  const ts =
+    typeof obj.ts === "number" && Number.isFinite(obj.ts) ? obj.ts : 0;
+  const payload =
+    typeof obj.payload === "object" && obj.payload !== null
+      ? (obj.payload as Record<string, unknown>)
+      : {};
+  return { type, ts, payload };
+}
+
 /** Open the SSE stream for a run. Caller must close() the returned source. */
 export function openRunEvents(
   runId: string,
@@ -179,12 +208,23 @@ export function openRunEvents(
   const source = new EventSource(
     `${apiBase}/runs/${encodeURIComponent(runId)}/events`,
   );
+  // Per-connection sequence. The server replays a still-running run from the
+  // beginning on every (re)connection, so reset to 0 on error/reconnect and let
+  // the reducer's high-water mark drop the replayed prefix.
+  let seq = 0;
+  source.addEventListener("error", () => {
+    seq = 0;
+  });
   source.addEventListener("run_event", (e) => {
+    let parsed: unknown;
     try {
-      onEvent(JSON.parse((e as MessageEvent).data) as RunEvent);
+      parsed = JSON.parse((e as MessageEvent).data);
     } catch {
-      /* skip malformed lines */
+      return; /* skip malformed (non-JSON) lines */
     }
+    const ev = sanitizeRunEvent(parsed);
+    if (ev === null) return; /* drop non-object events */
+    onEvent({ ...ev, seq: seq++ });
   });
   if (onError) source.onerror = onError;
   return source;

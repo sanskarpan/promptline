@@ -41,6 +41,13 @@ export interface RunState {
   /** Ring buffer of the last EVENT_LOG_MAX events. */
   eventLog: RunEvent[];
   eventCount: number;
+  /**
+   * High-water mark of the last applied per-connection event index. The SSE
+   * server replays a still-running run from the start on every reconnect, so
+   * any event whose `seq` is <= this has already been folded and is dropped to
+   * keep reconnects idempotent (no double-counted scores or event feed).
+   */
+  lastSeq: number;
 }
 
 export const initialRunState: RunState = {
@@ -54,6 +61,7 @@ export const initialRunState: RunState = {
   edges: [],
   eventLog: [],
   eventCount: 0,
+  lastSeq: -1,
 };
 
 function num(v: unknown): number | null {
@@ -78,6 +86,12 @@ export function extractParents(payload: Record<string, unknown>): string[] {
 }
 
 export function runReducer(state: RunState, event: RunEvent): RunState {
+  // Idempotent replay guard: a reconnect re-streams the running run from the
+  // start, so drop any event we have already folded (seq <= high-water mark).
+  // Events without a seq (e.g. non-SSE / tests) are always applied.
+  if (typeof event.seq === "number" && event.seq <= state.lastSeq) {
+    return state;
+  }
   const log =
     state.eventLog.length >= EVENT_LOG_MAX
       ? [...state.eventLog.slice(state.eventLog.length - EVENT_LOG_MAX + 1), event]
@@ -86,6 +100,7 @@ export function runReducer(state: RunState, event: RunEvent): RunState {
     ...state,
     eventLog: log,
     eventCount: state.eventCount + 1,
+    lastSeq: typeof event.seq === "number" ? event.seq : state.lastSeq,
   };
   const p = event.payload ?? {};
 
@@ -97,7 +112,8 @@ export function runReducer(state: RunState, event: RunEvent): RunState {
     case "candidate_proposed": {
       const id = str(p["candidate_id"]) ?? str(p["id"]);
       if (!id) break;
-      const parents = extractParents(p);
+      // Exclude any self-parent so lineage never draws a self-edge.
+      const parents = extractParents(p).filter((pid) => pid !== id);
       const node: LineageNode = next.nodes[id] ?? {
         id,
         parents,

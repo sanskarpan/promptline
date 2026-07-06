@@ -2,6 +2,11 @@ import { Fragment, useEffect, useState } from "react";
 import { api, type CalibrationCertificate } from "../api";
 import { Panel } from "../components/Panel";
 
+/** Format a metric, rendering NaN / non-finite values as an em dash. */
+function fmt(n: number, digits = 3): string {
+  return Number.isFinite(n) ? n.toFixed(digits) : "—";
+}
+
 function CertBadge({ cert }: { cert: CalibrationCertificate }) {
   if (cert.degenerate) {
     return <span className="badge status-degenerate">DEGENERATE</span>;
@@ -85,12 +90,12 @@ export function JudgePage() {
             <div className="stat-card">
               <div className="k">Kappa</div>
               <div className={`v ${cert.kappa >= cert.threshold ? "ok" : "bad"}`}>
-                {cert.kappa.toFixed(3)}
+                {fmt(cert.kappa)}
               </div>
             </div>
             <div className="stat-card">
               <div className="k">Spearman</div>
-              <div className="v">{cert.spearman.toFixed(3)}</div>
+              <div className="v">{fmt(cert.spearman)}</div>
             </div>
             <div className="stat-card">
               <div className="k">N Holdout</div>

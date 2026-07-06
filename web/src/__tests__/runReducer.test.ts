@@ -12,6 +12,11 @@ function ev(type: RunEvent["type"], payload: Record<string, unknown> = {}): RunE
   return { type, payload, ts: 1700000000 };
 }
 
+/** Assign per-connection seq indices as the live SSE client would. */
+function withSeq(events: RunEvent[]): RunEvent[] {
+  return events.map((e, i) => ({ ...e, seq: i }));
+}
+
 function fold(events: RunEvent[], start: RunState = initialRunState): RunState {
   return events.reduce(runReducer, start);
 }
@@ -92,6 +97,44 @@ describe("runReducer", () => {
     // Oldest events were evicted; the last one kept is the newest.
     expect(s.eventLog[0].payload["score"]).toBe(40);
     expect(s.eventLog[EVENT_LOG_MAX - 1].payload["score"]).toBe(EVENT_LOG_MAX + 39);
+  });
+
+  it("is idempotent when a running stream is replayed on reconnect", () => {
+    // The SSE server re-streams a running run from offset 0 on reconnect, so
+    // the same seq-tagged events arrive twice. Folding them twice must not
+    // double the score series, event feed or count.
+    const stream = withSeq([
+      ev("run_started"),
+      ev("minibatch_scored", { candidate_id: "a", score: 0.5 }),
+      ev("full_eval", { candidate_id: "a", mean_score: 0.7 }),
+      ev("full_eval", { candidate_id: "b", mean_score: 0.75 }),
+    ]);
+
+    const once = fold(stream);
+    const replayed = fold(stream, once); // simulate reconnect replay
+
+    expect(replayed.fullEvals).toHaveLength(once.fullEvals.length);
+    expect(replayed.minibatches).toHaveLength(once.minibatches.length);
+    expect(replayed.eventCount).toBe(once.eventCount);
+    expect(replayed.eventLog).toHaveLength(once.eventLog.length);
+    // A genuinely new post-reconnect event (higher seq) still applies.
+    const withNew = runReducer(replayed, {
+      ...ev("full_eval", { candidate_id: "c", mean_score: 0.9 }),
+      seq: stream.length,
+    });
+    expect(withNew.fullEvals).toHaveLength(once.fullEvals.length + 1);
+    expect(withNew.eventCount).toBe(once.eventCount + 1);
+  });
+
+  it("excludes a self-parent so lineage draws no self-edge", () => {
+    const s = fold([
+      ev("candidate_proposed", { candidate_id: "x", parent_id: "x" }),
+      ev("candidate_proposed", { candidate_id: "y", parents: ["y", "x"] }),
+    ]);
+    expect(s.nodes["x"].parents).toEqual([]);
+    expect(s.nodes["y"].parents).toEqual(["x"]);
+    expect(s.edges).toEqual([["x", "y"]]);
+    expect(s.edges.some(([a, b]) => a === b)).toBe(false);
   });
 
   it("is pure: does not mutate the previous state", () => {
