@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "promptline"
+name = "promptline-opt"
 version = "0.1.0"
 description = "Calibrate -> Optimize -> Gate -> Serve: automatic prompt optimization with a calibrated LLM judge, statistical deploy gating, and a versioned serving registry."
 readme = "README.md"

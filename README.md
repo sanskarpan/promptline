@@ -31,7 +31,7 @@ The demo starts from a deliberately mediocre seed and lets GEPA earn its keep:
 ## Quickstart
 
 ```bash
-uv pip install -e ".[data]"
+pip install "promptline-opt[data]"    # imports as `import promptline`
 export OPENROUTER_API_KEY=sk-or-...   # bring your own key → all major models
 
 promptline demo setup                 # datasets + config (see examples/support-assistant/)

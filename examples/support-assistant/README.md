@@ -12,8 +12,8 @@ You bring your own [OpenRouter](https://openrouter.ai/) API key; total cost for 
 ## Step 0 — install
 
 ```bash
-uv pip install -e ".[data]"          # the data extra pulls HF `datasets`
-export OPENROUTER_API_KEY=sk-or-...
+pip install "promptline-opt[data]"   # or, from a clone: uv pip install -e ".[data]"
+export OPENROUTER_API_KEY=sk-or-...   # the data extra pulls HF `datasets`
 ```
 
 ## Step 1 — setup
