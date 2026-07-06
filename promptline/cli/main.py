@@ -20,7 +20,12 @@ from rich.panel import Panel
 from rich.table import Table
 
 from promptline import __version__
-from promptline.core.config import PromptlineConfig, default_config_yaml, load_config
+from promptline.core.config import (
+    ConfigError,
+    PromptlineConfig,
+    default_config_yaml,
+    load_config,
+)
 from promptline.core.llm import FakeLLMClient, LLMError
 from promptline.core.program import ModelConfig, PromptProgram
 from promptline.core.types import Candidate, Example, ModuleState
@@ -116,6 +121,16 @@ class OptimizerChoice(StrEnum):
     gepa = "gepa"
     protegi = "protegi"
     mipro = "mipro"
+
+
+def _load_config_clean(path: str | Path) -> PromptlineConfig:
+    """Load a config, converting a malformed-YAML :class:`ConfigError` into a
+    clean CLI exit (code 2) instead of a raw traceback."""
+    try:
+        return load_config(path)
+    except ConfigError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
 
 
 def load_examples_jsonl(path: str) -> list[Example]:
@@ -381,12 +396,23 @@ def optimize(
 ) -> None:
     """Run a prompt optimization pass and print the best candidate."""
 
+    # ---- Budget sanity ------------------------------------------------------
+    # A non-positive rollout budget is exhausted from step 0: the optimizer
+    # returns the untouched seed and exits 0 as if it succeeded.  Reject it.
+    if budget is not None and budget <= 0:
+        typer.secho(
+            f"--budget must be a positive integer (got {budget}).",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2)
+
     # ---- Load config --------------------------------------------------------
     cfg_path = Path(config)
     if not cfg_path.exists():
         console.print(f"[red]Config not found:[/red] {cfg_path}")
         raise typer.Exit(1)
-    cfg = load_config(cfg_path)
+    cfg = _load_config_clean(cfg_path)
 
     # ---- Dataset ------------------------------------------------------------
     data_path = data or cfg.dataset.path
@@ -575,7 +601,7 @@ def calibrate(
 
     # ---- Config ------------------------------------------------------------
     cfg_path = Path(config)
-    cfg = load_config(cfg_path) if cfg_path.exists() else PromptlineConfig()
+    cfg = _load_config_clean(cfg_path) if cfg_path.exists() else PromptlineConfig()
 
     # ---- Gold dataset --------------------------------------------------------
     dataset = _load_gold_dataset(gold, criterion, n)
@@ -656,7 +682,7 @@ def _load_config_or_exit(config: str) -> PromptlineConfig:
     if not cfg_path.exists():
         console.print(f"[red]Config not found:[/red] {cfg_path}")
         raise typer.Exit(2)
-    return load_config(cfg_path)
+    return _load_config_clean(cfg_path)
 
 
 def _load_split_or_exit(path: str, name: str) -> list[Example]:
@@ -919,6 +945,25 @@ def _web_dist_path() -> Path:
     return Path(__file__).resolve().parents[2] / "web" / "dist"
 
 
+def _is_loopback_host(host: str) -> bool:
+    """Return True when *host* binds only to the local loopback interface.
+
+    Used to decide whether to warn that the control plane reads local files
+    named in request bodies and must not be exposed to untrusted networks.
+    """
+    import ipaddress
+
+    h = host.strip().lower()
+    if h in {"localhost", ""}:
+        return True
+    h = h.strip("[]")  # bracketed IPv6 literal
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        # A non-loopback hostname (e.g. example.com): treat as exposed.
+        return False
+
+
 def _warn_if_dashboard_missing() -> bool:
     """Print an amber warning when the dashboard is not built.
 
@@ -993,8 +1038,12 @@ def build_app_from_config(config_path: str):
                 if cand is None:
                     raise ValueError(f"unknown candidate prompt id: {cid}")
                 candidates.append(cand)
-            dev_examples = load_examples_jsonl(payload["dev_path"])
-            val_examples = load_examples_jsonl(payload["val_path"])
+            dev_path = payload.get("dev_path") or ""
+            val_path = payload.get("val_path") or ""
+            if not dev_path or not val_path:
+                raise ValueError("dev_path and val_path are required and must be non-empty")
+            dev_examples = load_examples_jsonl(dev_path)
+            val_examples = load_examples_jsonl(val_path)
             program, _ = _build_program_and_seed(cfg)
             client = _build_client(cfg)
             harness = EvalHarness(client=client, cfg=_model_config(cfg))
@@ -1077,7 +1126,19 @@ def serve(
     if not Path(config).exists():
         console.print(f"[red]Config not found:[/red] {config}")
         raise typer.Exit(1)
+    if not _is_loopback_host(host):
+        console.print(
+            f"[bold yellow]WARNING:[/bold yellow] binding to non-loopback host "
+            f"[bold]{host}[/bold]. The control plane reads local files named in "
+            "request bodies (data_path/dev_path/val_path) by design and performs "
+            "NO path confinement. Do NOT expose this server to untrusted networks."
+        )
     _warn_if_dashboard_missing()
+    try:
+        application = build_app_from_config(config)
+    except ConfigError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
     import uvicorn
 
-    uvicorn.run(build_app_from_config(config), host=host, port=port)
+    uvicorn.run(application, host=host, port=port)

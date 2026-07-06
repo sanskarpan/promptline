@@ -240,8 +240,11 @@ def create_app(
         except UncalibratedJudgeError as exc:
             # Judge metric configured but no passing calibration certificate.
             raise HTTPException(400, str(exc)) from exc
-        except (ValueError, KeyError, FileNotFoundError) as exc:
-            # Covers: no incumbent, unknown candidate id, missing dev/val path.
+        except (ValueError, KeyError, OSError) as exc:
+            # Covers: no incumbent, unknown candidate id, and filesystem errors
+            # from bad/empty dev/val paths.  OSError subsumes FileNotFoundError
+            # and IsADirectoryError (empty path → Path("").read_text() opens
+            # the cwd), so a malformed request yields 400 rather than 500.
             raise HTTPException(400, str(exc)) from exc
         if isinstance(result, BaseModel):
             return result.model_dump()
@@ -276,7 +279,13 @@ def create_app(
         cert_dir = Path(registry.root) / "certificates"
         certs: list[dict] = []
         for path in sorted(cert_dir.glob("*.json")):
-            certs.append(json.loads(path.read_text()))
+            try:
+                parsed = json.loads(path.read_text())
+            except (json.JSONDecodeError, OSError):
+                # Skip unreadable/malformed files rather than 500 the endpoint.
+                continue
+            if isinstance(parsed, dict):
+                certs.append(parsed)
         return certs
 
     # ---- Static dashboard (mounted last so API routes always win) --------------

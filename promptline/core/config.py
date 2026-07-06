@@ -96,9 +96,26 @@ class PromptlineConfig(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class ConfigError(ValueError):
+    """Raised when a config file cannot be parsed into a :class:`PromptlineConfig`.
+
+    Subclasses :class:`ValueError` so existing ``except ValueError`` handlers
+    keep working; CLI callers catch it to print a clean message instead of a
+    raw YAML traceback.
+    """
+
+
 def load_config(path: str | Path) -> PromptlineConfig:
-    """Parse *path* (YAML) into a :class:`PromptlineConfig`."""
-    raw = yaml.safe_load(Path(path).read_text())
+    """Parse *path* (YAML) into a :class:`PromptlineConfig`.
+
+    Raises :class:`ConfigError` (a ``ValueError``) with a readable message when
+    the file is not valid YAML, rather than letting a raw ``yaml.YAMLError``
+    escape as a traceback.
+    """
+    try:
+        raw = yaml.safe_load(Path(path).read_text())
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"Malformed YAML in {path}: {exc}") from exc
     if raw is None:
         raw = {}
     return PromptlineConfig.model_validate(raw)

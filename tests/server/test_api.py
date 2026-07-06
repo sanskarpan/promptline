@@ -246,6 +246,25 @@ def test_certificates_listing(tmp_path: Path) -> None:
         assert certs[0]["criterion"] == "helpfulness"
 
 
+def test_certificates_skips_malformed_files(tmp_path: Path) -> None:
+    """A non-JSON (or non-object) file in the certs dir must not 500 the endpoint."""
+    app, registry, _ = _make_app(tmp_path)
+    cert_dir = Path(registry.root) / "certificates"
+    cert_dir.mkdir(parents=True)
+    (cert_dir / "good.json").write_text(
+        json.dumps({"criterion": "helpfulness", "kappa": 0.8, "passed": True})
+    )
+    (cert_dir / "bad.json").write_text("{ not valid json ,,,")
+    (cert_dir / "list.json").write_text(json.dumps([1, 2, 3]))  # valid JSON, not an object
+
+    with TestClient(app) as client:
+        resp = client.get("/judges/certificates")
+        assert resp.status_code == 200
+        certs = resp.json()
+        assert len(certs) == 1
+        assert certs[0]["criterion"] == "helpfulness"
+
+
 # ---------------------------------------------------------------------------
 # RunManager unit behaviour
 # ---------------------------------------------------------------------------
@@ -359,6 +378,42 @@ def test_gate_runner_file_not_found_returns_400(tmp_path: Path) -> None:
     with TestClient(app) as client:
         resp = client.post("/gate", json={"program": "main", "candidate_ids": []})
         assert resp.status_code == 400
+
+
+def test_gate_runner_os_error_returns_400(tmp_path: Path) -> None:
+    """IsADirectoryError (a bare OSError) from gate_runner → 400, not 500.
+
+    Empty dev_path/val_path make the real gate_runner do Path("").read_text(),
+    which opens the cwd → IsADirectoryError.  The handler must catch OSError.
+    """
+
+    def _isdir_gate(payload: dict) -> dict:
+        raise IsADirectoryError(21, "Is a directory: ''")
+
+    app, _, _ = _make_app(tmp_path, gate_runner=_isdir_gate)
+    with TestClient(app) as client:
+        resp = client.post("/gate", json={"program": "main", "candidate_ids": []})
+        assert resp.status_code == 400
+
+
+def test_gate_endpoint_missing_paths_returns_400_not_500(tmp_path: Path) -> None:
+    """Real gate_runner with omitted dev_path/val_path → 400 (not a 500)."""
+    import os
+
+    from promptline.cli.main import build_app_from_config
+
+    cfg_path, _registry, _dev, _val, env_backup = _gate_parity_fixture(tmp_path)
+    try:
+        server_app = build_app_from_config(str(cfg_path))
+        with TestClient(server_app) as client:
+            resp = client.post(
+                "/gate",
+                json={"program": "main", "candidate_ids": ["good-1"]},
+            )
+            assert resp.status_code == 400, resp.text
+    finally:
+        os.environ.clear()
+        os.environ.update(env_backup)
 
 
 # ---------------------------------------------------------------------------

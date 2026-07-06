@@ -219,12 +219,12 @@ def test_optimize_opro_exit_0(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
 
 
-def test_optimize_bootstrap_rs_budget_zero_exits_cleanly(tmp_path: Path) -> None:
-    """optimize --optimizer bootstrap-rs --budget 0 must exit 0, no traceback.
+def test_optimize_budget_zero_rejected_exit_2(tmp_path: Path) -> None:
+    """optimize --budget 0 must be rejected up front → exit 2, no traceback.
 
-    Finding 1 (CLI crash): result.scores may be empty when budget=0 causes the
-    subset-evaluation loop to be skipped entirely.  The CLI must not attempt
-    ``f"...{value:.3f}"`` when *value* is the string ``'?'`` (the old fallback).
+    A non-positive rollout budget is exhausted from step 0 and silently
+    returns the untouched seed (exit 0 as if successful).  The CLI must reject
+    it before running.
     """
     cfg_path = tmp_path / "promptline.yaml"
     data_path = tmp_path / "data.jsonl"
@@ -249,10 +249,38 @@ def test_optimize_bootstrap_rs_budget_zero_exits_cleanly(tmp_path: Path) -> None
             "0",
         ],
         env=env,
-        catch_exceptions=False,
     )
-    assert result.exit_code == 0, f"Expected exit 0 with --budget 0. Got:\n{result.output}"
-    assert "Traceback" not in result.output
+    assert result.exit_code == 2, f"Expected exit 2 with --budget 0. Got:\n{result.output}"
+    assert "Traceback" not in (result.output or "")
+    assert "budget" in result.output.lower()
+
+
+def test_optimize_negative_budget_rejected_exit_2(tmp_path: Path) -> None:
+    """optimize --budget -5 must be rejected → exit 2, no traceback."""
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    fake_path = tmp_path / "fake_script.json"
+
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
+    _write_jsonl(data_path, _make_examples(3))
+    _write_fake_script(fake_path, _make_fake_responses(3))
+
+    env = {**os.environ, "PROMPTLINE_FAKE_SCRIPT": str(fake_path)}
+    result = runner.invoke(
+        app,
+        [
+            "optimize",
+            "--config",
+            str(cfg_path),
+            "--data",
+            str(data_path),
+            "--budget",
+            "-5",
+        ],
+        env=env,
+    )
+    assert result.exit_code == 2, f"Expected exit 2 with --budget -5. Got:\n{result.output}"
+    assert "Traceback" not in (result.output or "")
 
 
 def test_optimize_missing_config(tmp_path: Path) -> None:
@@ -1292,3 +1320,138 @@ def test_serve_no_warning_when_dashboard_built(tmp_path: Path, monkeypatch) -> N
         result = runner.invoke(app, ["serve", "--config", str(cfg_path)], catch_exceptions=False)
     assert result.exit_code == 0, result.output
     assert "dashboard not built" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# Finding: malformed YAML config → clean exit 2, no traceback
+# ---------------------------------------------------------------------------
+
+_MALFORMED_YAML = "program: {name: main\n  broken: [unterminated\n\t bad: indent"
+
+
+def test_load_config_raises_config_error_on_malformed_yaml(tmp_path: Path) -> None:
+    """load_config surfaces a clean ConfigError (ValueError) on bad YAML."""
+    import pytest
+
+    from promptline.core.config import ConfigError
+
+    bad = tmp_path / "promptline.yaml"
+    bad.write_text(_MALFORMED_YAML)
+    with pytest.raises(ConfigError):
+        load_config(bad)
+    # ConfigError must be a ValueError subclass for existing except handlers.
+    assert issubclass(ConfigError, ValueError)
+
+
+def test_optimize_malformed_config_exits_2_clean(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "promptline.yaml"
+    data_path = tmp_path / "data.jsonl"
+    cfg_path.write_text(_MALFORMED_YAML)
+    _write_jsonl(data_path, _make_examples(3))
+    result = runner.invoke(
+        app,
+        ["optimize", "--config", str(cfg_path), "--data", str(data_path)],
+    )
+    assert result.exit_code == 2, result.output
+    assert "Traceback" not in (result.output or "")
+
+
+def test_gate_malformed_config_exits_2_clean(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "promptline.yaml"
+    cfg_path.write_text(_MALFORMED_YAML)
+    result = runner.invoke(
+        app,
+        [
+            "gate",
+            "--candidate",
+            "good-1",
+            "--dev",
+            str(tmp_path / "dev.jsonl"),
+            "--val",
+            str(tmp_path / "val.jsonl"),
+            "--config",
+            str(cfg_path),
+        ],
+    )
+    assert result.exit_code == 2, result.output
+    assert "Traceback" not in (result.output or "")
+
+
+def test_calibrate_malformed_config_exits_2_clean(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "promptline.yaml"
+    cfg_path.write_text(_MALFORMED_YAML)
+    result = runner.invoke(
+        app,
+        ["calibrate", "--gold", str(tmp_path / "gold.jsonl"), "--config", str(cfg_path)],
+    )
+    assert result.exit_code == 2, result.output
+    assert "Traceback" not in (result.output or "")
+
+
+def test_serve_malformed_config_exits_2_clean(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    cfg_path = tmp_path / "promptline.yaml"
+    cfg_path.write_text(_MALFORMED_YAML)
+    with patch("uvicorn.run") as fake_run:
+        result = runner.invoke(app, ["serve", "--config", str(cfg_path)])
+    assert result.exit_code == 2, result.output
+    assert "Traceback" not in (result.output or "")
+    assert not fake_run.called
+
+
+# ---------------------------------------------------------------------------
+# Finding: server reads arbitrary local files → warn on non-loopback host
+# ---------------------------------------------------------------------------
+
+
+def test_is_loopback_host_helper() -> None:
+    from promptline.cli.main import _is_loopback_host
+
+    assert _is_loopback_host("127.0.0.1") is True
+    assert _is_loopback_host("localhost") is True
+    assert _is_loopback_host("::1") is True
+    assert _is_loopback_host("0.0.0.0") is False
+    assert _is_loopback_host("192.168.1.10") is False
+    assert _is_loopback_host("example.com") is False
+
+
+def test_serve_warns_on_non_loopback_host(tmp_path: Path, monkeypatch) -> None:
+    from unittest.mock import patch
+
+    import promptline.cli.main as cli_main
+
+    cfg_path = tmp_path / "promptline.yaml"
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
+    monkeypatch.setattr(cli_main, "_web_dist_path", lambda: tmp_path / "no-dist")
+
+    with patch("uvicorn.run") as fake_run:
+        result = runner.invoke(
+            app,
+            ["serve", "--host", "0.0.0.0", "--config", str(cfg_path)],
+            catch_exceptions=False,
+        )
+    assert result.exit_code == 0, result.output
+    flat = " ".join(result.output.split()).lower()
+    assert "local files" in flat
+    assert "untrusted" in flat
+    assert fake_run.called
+
+
+def test_serve_no_network_warning_on_loopback_host(tmp_path: Path, monkeypatch) -> None:
+    from unittest.mock import patch
+
+    import promptline.cli.main as cli_main
+
+    cfg_path = tmp_path / "promptline.yaml"
+    _write_config(cfg_path, registry_path=str(tmp_path / "reg"))
+    monkeypatch.setattr(cli_main, "_web_dist_path", lambda: tmp_path / "no-dist")
+
+    with patch("uvicorn.run"):
+        result = runner.invoke(
+            app,
+            ["serve", "--host", "127.0.0.1", "--config", str(cfg_path)],
+            catch_exceptions=False,
+        )
+    assert result.exit_code == 0, result.output
+    assert "untrusted" not in result.output.lower()
